@@ -278,6 +278,43 @@ Required structure:
     return Number.isFinite(n) ? Math.trunc(n) : fallback;
   }
 
+  async function wikiLookupSpell(spellName) {
+    const slug = spellName.toLowerCase()
+      .replace(/'/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const targetUrl = `https://dnd5e.wikidot.com/spell:${slug}`;
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
+    const resp = await fetch(proxyUrl);
+    if (!resp.ok) throw new Error(`Request failed (${resp.status})`);
+    const html = await resp.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const content = doc.querySelector('#page-content');
+    if (!content || content.textContent.includes('does not exist'))
+      throw new Error(`"${spellName}" not found on the wiki.`);
+    const paras = Array.from(content.querySelectorAll('p'));
+    let subtitle = '', casting_time = '', range_area = '', components = '', duration = '';
+    const descParts = [];
+    let statsFound = false;
+    for (const p of paras) {
+      const text = p.textContent.trim();
+      if (!text) continue;
+      if (/casting time:/i.test(text)) {
+        statsFound = true;
+        casting_time = (text.match(/Casting Time:\s*(.+?)(?=Range:|Area:|Components:|Duration:|$)/i)?.[1] || '').trim();
+        range_area   = (text.match(/Range(?:\/Area)?:\s*(.+?)(?=Components:|Duration:|$)/i)?.[1] || '').trim();
+        components   = (text.match(/Components:\s*(.+?)(?=Duration:|$)/i)?.[1] || '').trim();
+        duration     = (text.match(/Duration:\s*(.+?)$/i)?.[1] || '').trim();
+      } else if (!statsFound && /^\d+\w*[- ]level|\bcantrip\b/i.test(text)) {
+        subtitle = text;
+      } else if (statsFound && !/^Source:|^Spell Lists/i.test(text)) {
+        descParts.push(text);
+      }
+    }
+    return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
+  }
+
   function saveToLocalStorage(){
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
     catch { return false; }
@@ -554,7 +591,7 @@ Required structure:
       list.querySelectorAll('[data-res-reset]').forEach(sel => sel.onchange = () => {
         const i = toInt(sel.dataset.resReset, -1);
         c.resources[i].reset = sel.value;
-        save();
+        saveToLocalStorage();
       });
     }
 
@@ -628,20 +665,9 @@ Required structure:
       list.querySelectorAll('[data-feat-reset]').forEach(sel => sel.onchange = () => {
         const i = toInt(sel.dataset.featReset, -1);
         c.features[i].reset = sel.value;
-        save();
+        saveToLocalStorage();
       });
     }
-
-    $('#btnShortRest').onclick = () => {
-      (c.resources||[]).forEach(r => { if (r.reset === 'short') r.used = 0; });
-      (c.features||[]).forEach(f => { if (f.reset === 'short' && f.uses_max != null) f.uses_used = 0; });
-      render();
-    };
-    $('#btnLongRest').onclick = () => {
-      (c.resources||[]).forEach(r => { if (r.reset === 'short' || r.reset === 'long') r.used = 0; });
-      (c.features||[]).forEach(f => { if ((f.reset === 'short' || f.reset === 'long') && f.uses_max != null) f.uses_used = 0; });
-      render();
-    };
 
     $('#btnAddResource').onclick = () => {
       c.resources = c.resources || [];
@@ -824,6 +850,7 @@ Required structure:
                 ${x.description ? `<div class="spell-card-desc">${escapeHtml(x.description).replace(/\n/g,'<br/>')}</div>` : '<div class="mini">No description yet.</div>'}
                 <div class="row" style="margin-top:12px; gap:8px;">
                   <button class="btn" data-spell-edit="${field}:${i}">Edit Details</button>
+                  <button class="btn" data-spell-wiki="${field}:${i}">Wiki Lookup</button>
                   <button class="btn" data-spell-notes="${field}:${i}">Notes</button>
                 </div>
               </div>
@@ -888,6 +915,29 @@ Required structure:
         const i = toInt(idxStr, -1);
         s[f].splice(i, 1);
         render();
+      });
+
+      list.querySelectorAll('[data-spell-wiki]').forEach(btn => btn.onclick = async () => {
+        const [f, idxStr] = btn.dataset.spellWiki.split(':');
+        const i = toInt(idxStr, -1);
+        const sp = s[f][i];
+        const orig = btn.textContent;
+        btn.textContent = 'Loading…';
+        btn.disabled = true;
+        try {
+          const data = await wikiLookupSpell(sp.name || '');
+          if (data.subtitle)     sp.subtitle     = data.subtitle;
+          if (data.casting_time) sp.casting_time = data.casting_time;
+          if (data.range_area)   sp.range_area   = data.range_area;
+          if (data.components)   sp.components   = data.components;
+          if (data.duration)     sp.duration     = data.duration;
+          if (data.description)  sp.description  = data.description;
+          render();
+        } catch (err) {
+          btn.textContent = orig;
+          btn.disabled = false;
+          alert('Wiki lookup failed: ' + err.message);
+        }
       });
     }
 
