@@ -34,7 +34,8 @@
           items: []
         },
         quests: [],
-        notes: ''
+        notes: '',
+        ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 }
       }
     };
   }
@@ -245,6 +246,14 @@ Required structure:
     if (!out.character.inventory.currency) out.character.inventory.currency = deepClone(base.character.inventory.currency);
     if (!Array.isArray(out.character.inventory.items)) out.character.inventory.items = [];
 
+    if (!out.character.ability_scores || typeof out.character.ability_scores !== 'object') {
+      out.character.ability_scores = { str:10, dex:10, con:10, int:10, wis:10, cha:10 };
+    }
+    const as = out.character.ability_scores;
+    for (const key of ['str','dex','con','int','wis','cha']) {
+      as[key] = clamp(toInt(as[key], 10), 1, 30);
+    }
+
     return out;
   }
 
@@ -371,6 +380,7 @@ Required structure:
     const isCaster = !!state.character.spellcasting;
     const tabs = [
       { id:'overview', label:'Overview' },
+      { id:'stats', label:'Stats' },
       { id:'spells', label:'Spells', hide: !isCaster },
       { id:'combat', label:'Combat' },
       { id:'inventory', label:'Inventory' },
@@ -422,6 +432,7 @@ Required structure:
   function renderContent(){
     const c = state.character;
     if (activeTab === 'overview') return renderOverview(c);
+    if (activeTab === 'stats') return renderStats(c);
     if (activeTab === 'spells') return renderSpells(c);
     if (activeTab === 'combat') return renderCombat(c);
     if (activeTab === 'inventory') return renderInventory(c);
@@ -851,6 +862,55 @@ Required structure:
       for (let i=1; i<=9; i++) if (!levels.has(i)) return i;
       return 1;
     }
+  }
+
+  function renderStats(c){
+    if (!c.ability_scores) c.ability_scores = { str:10, dex:10, con:10, int:10, wis:10, cha:10 };
+    const as = c.ability_scores;
+    const stats = [
+      { key:'str', label:'Strength',     abbr:'STR' },
+      { key:'dex', label:'Dexterity',    abbr:'DEX' },
+      { key:'con', label:'Constitution', abbr:'CON' },
+      { key:'int', label:'Intelligence', abbr:'INT' },
+      { key:'wis', label:'Wisdom',       abbr:'WIS' },
+      { key:'cha', label:'Charisma',     abbr:'CHA' },
+    ];
+
+    function modStr(score){
+      const m = Math.floor((score - 10) / 2);
+      return (m >= 0 ? '+' : '') + m;
+    }
+
+    $('#contentCard').innerHTML = `
+      <h2>Ability Scores</h2>
+      <div class="grid3" style="margin-top:12px;">
+        ${stats.map(s => {
+          const score = toInt(as[s.key], 10);
+          const m = modStr(score);
+          const positive = score >= 10;
+          return `
+            <div class="stat-block">
+              <div class="stat-abbr">${s.abbr}</div>
+              <div class="stat-label">${s.label}</div>
+              <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'};">${m}</div>
+              <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    $('#contentCard').querySelectorAll('[data-stat]').forEach(inp => {
+      inp.oninput = () => {
+        const key = inp.dataset.stat;
+        const val = clamp(toInt(inp.value, 10), 1, 30);
+        c.ability_scores[key] = val;
+        const modEl = $('#contentCard').querySelector(`[data-stat-mod="${key}"]`);
+        const m = modStr(val);
+        modEl.textContent = m;
+        modEl.style.color = val >= 10 ? 'var(--good)' : 'var(--bad)';
+      };
+    });
   }
 
   function renderCombat(c){
