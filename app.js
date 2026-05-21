@@ -458,6 +458,7 @@ Required structure:
     const tabs = [
       { id:'overview', label:'Overview' },
       { id:'stats', label:'Stats' },
+      { id:'class_race', label:'Class/Race' },
       { id:'spells', label:'Spells', hide: !isCaster },
       { id:'combat', label:'Combat' },
       { id:'inventory', label:'Inventory' },
@@ -510,6 +511,7 @@ Required structure:
     const c = state.character;
     if (activeTab === 'overview') return renderOverview(c);
     if (activeTab === 'stats') return renderStats(c);
+    if (activeTab === 'class_race') return renderClassRace(c);
     if (activeTab === 'spells') return renderSpells(c);
     if (activeTab === 'combat') return renderCombat(c);
     if (activeTab === 'inventory') return renderInventory(c);
@@ -541,18 +543,6 @@ Required structure:
           </div>
         </div>
 
-        <div class="col">
-          <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-            <h2 style="margin:0;">Resources</h2>
-          </div>
-          <div class="mini" style="margin-top:4px;">For Fighters: Action Surge, Second Wind. For anyone: class features with uses.</div>
-          <div class="list" id="resourcesList" style="margin-top:10px;"></div>
-          <button class="btn" id="btnAddResource">Add Resource</button>
-
-          <h2 style="margin-top:14px;">Features</h2>
-          <div class="list" id="featuresList" style="margin-top:10px;"></div>
-          <button class="btn" id="btnAddFeature">Add Feature</button>
-        </div>
       </div>
     `;
 
@@ -576,8 +566,40 @@ Required structure:
       };
     });
 
+  }
+
+  function renderClassRace(c){
+    $('#contentCard').innerHTML = `
+      <div class="grid2">
+        <div class="col">
+          <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+            <h2 style="margin:0;">Resources</h2>
+          </div>
+          <div class="mini" style="margin-top:4px;">For Fighters: Action Surge, Second Wind. For anyone: class features with uses.</div>
+          <div class="list" id="resourcesList" style="margin-top:10px;"></div>
+          <button class="btn" id="btnAddResource">Add Resource</button>
+        </div>
+        <div class="col">
+          <h2>Features</h2>
+          <div class="list" id="featuresList" style="margin-top:10px;"></div>
+          <button class="btn" id="btnAddFeature">Add Feature</button>
+        </div>
+      </div>
+    `;
+
     renderResourcesList();
     renderFeaturesList();
+
+    $('#btnAddResource').onclick = () => {
+      c.resources = c.resources || [];
+      c.resources.push({ name:'New Resource', max:1, used:0, reset:'short', notes:'' });
+      render();
+    };
+    $('#btnAddFeature').onclick = () => {
+      c.features = c.features || [];
+      c.features.push({ name:'New Feature', description:'', uses_max:null, uses_used:null, reset:'none' });
+      render();
+    };
 
     function renderResourcesList(){
       const list = $('#resourcesList');
@@ -705,17 +727,6 @@ Required structure:
         saveToLocalStorage();
       });
     }
-
-    $('#btnAddResource').onclick = () => {
-      c.resources = c.resources || [];
-      c.resources.push({ name:'New Resource', max:1, used:0, reset:'short', notes:'' });
-      render();
-    };
-    $('#btnAddFeature').onclick = () => {
-      c.features = c.features || [];
-      c.features.push({ name:'New Feature', description:'', uses_max:null, uses_used:null, reset:'none' });
-      render();
-    };
   }
 
   function renderSpells(c){
@@ -1120,6 +1131,7 @@ Required structure:
 
   function renderCombat(c){
     const attacks = c.attacks || [];
+    const actions = c.actions || [];
     $('#contentCard').innerHTML = `
       <div class="grid2">
         <div class="col">
@@ -1127,24 +1139,27 @@ Required structure:
           <div class="mini">Track your bread-and-butter: weapon attacks, cantrip attacks, special actions.</div>
           <div class="list" id="attacksList" style="margin-top:10px;"></div>
           <button class="btn" id="btnAddAttack">Add Attack</button>
+
+          <h2 style="margin-top:14px;">Actions</h2>
+          <div class="list" id="actionsList" style="margin-top:10px;"></div>
+          <button class="btn" id="btnAddAction">Add Action</button>
         </div>
 
-        <div class="col">
-          <h2>HP Notes</h2>
-          ${textAreaField('HP Notes','hp.notes', c.hp.notes || '')}
-          <h2 style="margin-top:14px;">Rest Behavior</h2>
-          <div class="mini">Short Rest: resets resources/features marked <span class="kbd">short</span>. Long Rest: heals to max, clears temp HP, resets <span class="kbd">long</span> & spell slots.</div>
-        </div>
       </div>
     `;
 
-    wireTextAreaFields('#contentCard');
-
     renderAttacks();
+    renderActions();
 
     $('#btnAddAttack').onclick = () => {
       c.attacks = c.attacks || [];
       c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
+      render();
+    };
+
+    $('#btnAddAction').onclick = () => {
+      c.actions = c.actions || [];
+      c.actions.push({ name:'New Action', notes:'' });
       render();
     };
 
@@ -1191,6 +1206,40 @@ Required structure:
       list.querySelectorAll('[data-atk-del]').forEach(btn => btn.onclick = () => {
         const i = toInt(btn.dataset.atkDel, -1);
         c.attacks.splice(i, 1);
+        render();
+      });
+    }
+
+    function renderActions(){
+      const list = $('#actionsList');
+      const acts = c.actions || [];
+      list.innerHTML = acts.length ? acts.map((a,i) => `
+        <div class="item">
+          <div>
+            <b>${escapeHtml(a.name || 'Action')}</b>
+            <div class="mini">${escapeHtml(a.notes || '')}</div>
+          </div>
+          <div class="row" style="justify-content:flex-end;">
+            <button class="btn" data-act-edit="${i}">Edit</button>
+            <button class="btn danger" data-act-del="${i}">Delete</button>
+          </div>
+        </div>
+      `).join('') : `<div class="mini">No actions listed.</div>`;
+
+      list.querySelectorAll('[data-act-edit]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.actEdit, -1);
+        const act = c.actions[i];
+        const name = prompt('Name:', act.name ?? '');
+        if (name == null) return;
+        const notes = prompt('Notes:', act.notes ?? '');
+        if (notes == null) return;
+        act.name = name;
+        act.notes = notes;
+        render();
+      });
+      list.querySelectorAll('[data-act-del]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.actDel, -1);
+        c.actions.splice(i, 1);
         render();
       });
     }
