@@ -293,25 +293,27 @@ Required structure:
     const content = doc.querySelector('#page-content');
     if (!content || content.textContent.includes('does not exist'))
       throw new Error(`"${spellName}" not found on the wiki.`);
-    const paras = Array.from(content.querySelectorAll('p'));
-    let subtitle = '', casting_time = '', range_area = '', components = '', duration = '';
-    const descParts = [];
-    let statsFound = false;
-    for (const p of paras) {
-      const text = p.textContent.trim();
-      if (!text) continue;
-      if (/casting time:/i.test(text)) {
-        statsFound = true;
-        casting_time = (text.match(/Casting Time:\s*(.+?)(?=Range:|Area:|Components:|Duration:|$)/i)?.[1] || '').trim();
-        range_area   = (text.match(/Range(?:\/Area)?:\s*(.+?)(?=Components:|Duration:|$)/i)?.[1] || '').trim();
-        components   = (text.match(/Components:\s*(.+?)(?=Duration:|$)/i)?.[1] || '').trim();
-        duration     = (text.match(/Duration:\s*(.+?)$/i)?.[1] || '').trim();
-      } else if (!statsFound && /^\d+\w*[- ]level|\bcantrip\b/i.test(text)) {
-        subtitle = text;
-      } else if (statsFound && !/^Source:|^Spell Lists/i.test(text)) {
-        descParts.push(text);
-      }
-    }
+
+    // Work on the full text content so newlines between stat fields don't break extraction
+    const txt = content.textContent;
+
+    // Subtitle: first line containing level/cantrip info
+    const subtitleMatch = txt.match(/^[ \t]*((?:\d\w*[- ]level|cantrip)\s+\w[\w\s]*)[ \t]*$/im);
+    const subtitle = subtitleMatch ? subtitleMatch[1].trim() : '';
+
+    // Stats: use [\s\S]+? so newlines between fields are handled, anchored to next field name
+    const g = (pat) => (txt.match(pat)?.[1] || '').trim().replace(/\s+/g, ' ');
+    const casting_time = g(/Casting Time:\s*([\s\S]+?)(?=\s*Range(?:\/Area)?:)/i);
+    const range_area   = g(/Range(?:\/Area)?:\s*([\s\S]+?)(?=\s*Components:)/i);
+    const components   = g(/Components:\s*([\s\S]+?)(?=\s*Duration:)/i);
+    const duration     = g(/Duration:\s*([^\n\r]+)/i);
+
+    // Description: paragraphs that are not stat lines, source, subtitle, or spell-list lines
+    const skipPat = /^(Casting Time|Range|Components|Duration|Source|Spell Lists)/i;
+    const descParts = Array.from(content.querySelectorAll('p'))
+      .map(p => p.textContent.trim())
+      .filter(t => t && !skipPat.test(t) && !/cantrip|\d+\w*[- ]level/i.test(t));
+
     return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
   }
 
