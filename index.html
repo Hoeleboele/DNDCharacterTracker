@@ -177,21 +177,6 @@
       </div>
 
       <div class="card">
-        <h2>Load Character</h2>
-        <div class="mini" style="margin-top:6px;">Paste JSON from DMGPT (or upload a .json). This replaces the current character.</div>
-        <div style="margin-top:10px;" class="col">
-          <textarea id="importText" placeholder="Paste exported JSON here…"></textarea>
-          <div class="row">
-            <button class="btn" id="btnLoad">Load</button>
-            <button class="btn" id="btnLoadExample">Load Example</button>
-          </div>
-          <div class="row" style="justify-content:space-between;">
-            <input type="file" id="fileInput" accept="application/json,.json" />
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
         <h2>Save / Export</h2>
         <div class="col" style="margin-top:10px;">
           <button class="btn" id="btnSaveLocal">Save to Browser</button>
@@ -199,21 +184,6 @@
           <button class="btn danger" id="btnWipe">Wipe Local Save</button>
         </div>
         <div class="mini" style="margin-top:10px;">Saved in your browser via <span class="kbd">localStorage</span>. Clear site data to nuke it from orbit.</div>
-      </div>
-
-      <details id="dmgptPrompt" class="card" open>
-        <summary>DMGPT Export Prompt (copy/paste)</summary>
-        <div class="mini" style="margin-top:8px;">Put this in your DMGPT as a command like <span class="kbd">/exportcharacter</span>. The app can parse a raw JSON object or a single JSON code block.</div>
-        <textarea id="promptText" readonly></textarea>
-        <div class="row" style="margin-top:8px;">
-          <button class="btn" id="btnCopyPrompt">Copy Prompt</button>
-          <button class="btn" id="btnCopySchema">Copy Schema Example</button>
-        </div>
-      </details>
-
-      <div class="footer">
-        <div><b>Tip:</b> If you paste a DMGPT response that includes backticks, the loader strips the code fences.</div>
-        <div style="margin-top:8px;">Version: <span class="kbd">dnd-char-tracker@1</span> (plus optional fields)</div>
       </div>
     </aside>
 
