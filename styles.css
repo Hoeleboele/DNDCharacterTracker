@@ -227,6 +227,42 @@
       font-weight:700;
     }
 
+    .skill-list{ display:flex; flex-direction:column; gap:4px; }
+    .skill-row{
+      display:grid;
+      grid-template-columns: 22px 36px 1fr auto;
+      align-items:center;
+      gap:8px;
+      padding:4px 6px;
+      border-radius:8px;
+    }
+    .skill-row:hover{ background:rgba(255,255,255,.04); }
+    .skill-prof-dot{
+      width:14px; height:14px;
+      border-radius:50%;
+      border:2px solid var(--muted);
+      background:transparent;
+      cursor:pointer;
+      padding:0;
+      flex-shrink:0;
+    }
+    .skill-prof-dot.proficient{
+      background:var(--accent);
+      border-color:var(--accent);
+    }
+    .skill-mod-val{
+      font-size:13px;
+      font-weight:700;
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+    }
+    .skill-name{ font-size:13px; color:var(--text); }
+    .skill-stat-tag{
+      font-size:11px;
+      color:var(--muted);
+      letter-spacing:.5px;
+    }
+
     @media (max-width: 1000px){
       .app{ grid-template-columns: 1fr; }
       .sidebar{ border-right:none; border-bottom:1px solid var(--line); }

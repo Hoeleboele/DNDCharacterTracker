@@ -35,7 +35,8 @@
         },
         quests: [],
         notes: '',
-        ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 }
+        ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 },
+        skill_proficiencies: []
       }
     };
   }
@@ -254,6 +255,8 @@ Required structure:
       as[key] = clamp(toInt(as[key], 10), 1, 30);
     }
 
+    if (!Array.isArray(out.character.skill_proficiencies)) out.character.skill_proficiencies = [];
+
     return out;
   }
 
@@ -465,8 +468,10 @@ Required structure:
         </div>
 
         <div class="col">
-          <h2>Resources</h2>
-          <div class="mini">For Fighters: Action Surge, Second Wind. For anyone: class features with uses.</div>
+          <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+            <h2 style="margin:0;">Resources</h2>
+          </div>
+          <div class="mini" style="margin-top:4px;">For Fighters: Action Surge, Second Wind. For anyone: class features with uses.</div>
           <div class="list" id="resourcesList" style="margin-top:10px;"></div>
           <button class="btn" id="btnAddResource">Add Resource</button>
 
@@ -506,9 +511,13 @@ Required structure:
       list.innerHTML = r.length ? r.map((x,i) => `
         <div class="item">
           <div>
-            <div class="row" style="justify-content:space-between;">
+            <div class="row" style="justify-content:space-between; align-items:center; gap:6px;">
               <b>${escapeHtml(x.name || 'Resource')}</b>
-              <span class="pill">reset: ${escapeHtml(x.reset || 'none')}</span>
+              <select class="reset-sel" data-res-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
+                <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
+                <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
+                <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
+              </select>
             </div>
             <div class="mini">${escapeHtml(x.notes || '')}</div>
           </div>
@@ -542,6 +551,11 @@ Required structure:
         c.resources.splice(i, 1);
         render();
       });
+      list.querySelectorAll('[data-res-reset]').forEach(sel => sel.onchange = () => {
+        const i = toInt(sel.dataset.resReset, -1);
+        c.resources[i].reset = sel.value;
+        save();
+      });
     }
 
     function renderFeaturesList(){
@@ -550,9 +564,13 @@ Required structure:
       list.innerHTML = f.length ? f.map((x,i) => `
         <div class="item">
           <div>
-            <div class="row" style="justify-content:space-between;">
+            <div class="row" style="justify-content:space-between; align-items:center; gap:6px;">
               <b>${escapeHtml(x.name || 'Feature')}</b>
-              <span class="pill">reset: ${escapeHtml(x.reset || 'none')}</span>
+              <select class="reset-sel" data-feat-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
+                <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
+                <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
+                <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
+              </select>
             </div>
             <div class="mini">${escapeHtml(x.description || '')}</div>
           </div>
@@ -607,7 +625,23 @@ Required structure:
         c.features.splice(i, 1);
         render();
       });
+      list.querySelectorAll('[data-feat-reset]').forEach(sel => sel.onchange = () => {
+        const i = toInt(sel.dataset.featReset, -1);
+        c.features[i].reset = sel.value;
+        save();
+      });
     }
+
+    $('#btnShortRest').onclick = () => {
+      (c.resources||[]).forEach(r => { if (r.reset === 'short') r.used = 0; });
+      (c.features||[]).forEach(f => { if (f.reset === 'short' && f.uses_max != null) f.uses_used = 0; });
+      render();
+    };
+    $('#btnLongRest').onclick = () => {
+      (c.resources||[]).forEach(r => { if (r.reset === 'short' || r.reset === 'long') r.used = 0; });
+      (c.features||[]).forEach(f => { if ((f.reset === 'short' || f.reset === 'long') && f.uses_max != null) f.uses_used = 0; });
+      render();
+    };
 
     $('#btnAddResource').onclick = () => {
       c.resources = c.resources || [];
@@ -866,7 +900,10 @@ Required structure:
 
   function renderStats(c){
     if (!c.ability_scores) c.ability_scores = { str:10, dex:10, con:10, int:10, wis:10, cha:10 };
+    if (!Array.isArray(c.skill_proficiencies)) c.skill_proficiencies = [];
     const as = c.ability_scores;
+    const profBonus = c.combat.proficiency_bonus || 2;
+
     const stats = [
       { key:'str', label:'Strength',     abbr:'STR' },
       { key:'dex', label:'Dexterity',    abbr:'DEX' },
@@ -876,27 +913,71 @@ Required structure:
       { key:'cha', label:'Charisma',     abbr:'CHA' },
     ];
 
-    function modStr(score){
-      const m = Math.floor((score - 10) / 2);
-      return (m >= 0 ? '+' : '') + m;
-    }
+    const SKILLS = [
+      { key:'acrobatics',      label:'Acrobatics',      stat:'dex' },
+      { key:'animal_handling', label:'Animal Handling',  stat:'wis' },
+      { key:'arcana',          label:'Arcana',           stat:'int' },
+      { key:'athletics',       label:'Athletics',        stat:'str' },
+      { key:'deception',       label:'Deception',        stat:'cha' },
+      { key:'history',         label:'History',          stat:'int' },
+      { key:'insight',         label:'Insight',          stat:'wis' },
+      { key:'intimidation',    label:'Intimidation',     stat:'cha' },
+      { key:'investigation',   label:'Investigation',    stat:'int' },
+      { key:'medicine',        label:'Medicine',         stat:'wis' },
+      { key:'nature',          label:'Nature',           stat:'int' },
+      { key:'perception',      label:'Perception',       stat:'wis' },
+      { key:'performance',     label:'Performance',      stat:'cha' },
+      { key:'persuasion',      label:'Persuasion',       stat:'cha' },
+      { key:'religion',        label:'Religion',         stat:'int' },
+      { key:'sleight_of_hand', label:'Sleight of Hand',  stat:'dex' },
+      { key:'stealth',         label:'Stealth',          stat:'dex' },
+      { key:'survival',        label:'Survival',         stat:'wis' },
+    ];
+
+    const statAbbr = { str:'STR', dex:'DEX', con:'CON', int:'INT', wis:'WIS', cha:'CHA' };
+
+    function abilityMod(statKey){ return Math.floor((toInt(as[statKey], 10) - 10) / 2); }
+    function modStr(score){ const m = Math.floor((score - 10) / 2); return (m >= 0 ? '+' : '') + m; }
+    function skillTotal(sk){ return abilityMod(sk.stat) + (c.skill_proficiencies.includes(sk.key) ? profBonus : 0); }
+    function skillModStr(sk){ const t = skillTotal(sk); return (t >= 0 ? '+' : '') + t; }
 
     $('#contentCard').innerHTML = `
-      <h2>Ability Scores</h2>
-      <div class="grid3" style="margin-top:12px;">
-        ${stats.map(s => {
-          const score = toInt(as[s.key], 10);
-          const m = modStr(score);
-          const positive = score >= 10;
-          return `
-            <div class="stat-block">
-              <div class="stat-abbr">${s.abbr}</div>
-              <div class="stat-label">${s.label}</div>
-              <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'};">${m}</div>
-              <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
-            </div>
-          `;
-        }).join('')}
+      <div class="grid2">
+        <div class="col">
+          <h2>Ability Scores</h2>
+          <div class="grid3" style="margin-top:12px;">
+            ${stats.map(s => {
+              const score = toInt(as[s.key], 10);
+              const positive = score >= 10;
+              return `
+                <div class="stat-block">
+                  <div class="stat-abbr">${s.abbr}</div>
+                  <div class="stat-label">${s.label}</div>
+                  <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
+                  <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="col">
+          <h2>Skills <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
+          <div class="skill-list" style="margin-top:10px;">
+            ${SKILLS.map(sk => {
+              const t = skillTotal(sk);
+              const isProficient = c.skill_proficiencies.includes(sk.key);
+              return `
+                <div class="skill-row">
+                  <button class="skill-prof-dot${isProficient ? ' proficient' : ''}" data-skill-toggle="${sk.key}" title="Toggle proficiency"></button>
+                  <span class="skill-mod-val" data-skill-mod="${sk.key}" style="color:${t >= 0 ? 'var(--good)' : 'var(--bad)'}">${skillModStr(sk)}</span>
+                  <span class="skill-name">${sk.label}</span>
+                  <span class="skill-stat-tag">${statAbbr[sk.stat]}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
       </div>
     `;
 
@@ -906,9 +987,31 @@ Required structure:
         const val = clamp(toInt(inp.value, 10), 1, 30);
         c.ability_scores[key] = val;
         const modEl = $('#contentCard').querySelector(`[data-stat-mod="${key}"]`);
-        const m = modStr(val);
-        modEl.textContent = m;
+        modEl.textContent = modStr(val);
         modEl.style.color = val >= 10 ? 'var(--good)' : 'var(--bad)';
+        SKILLS.filter(sk => sk.stat === key).forEach(sk => {
+          const el = $('#contentCard').querySelector(`[data-skill-mod="${sk.key}"]`);
+          if (!el) return;
+          const t = skillTotal(sk);
+          el.textContent = skillModStr(sk);
+          el.style.color = t >= 0 ? 'var(--good)' : 'var(--bad)';
+        });
+      };
+    });
+
+    $('#contentCard').querySelectorAll('[data-skill-toggle]').forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.skillToggle;
+        const idx = c.skill_proficiencies.indexOf(key);
+        if (idx === -1) c.skill_proficiencies.push(key);
+        else c.skill_proficiencies.splice(idx, 1);
+        const isProficient = c.skill_proficiencies.includes(key);
+        btn.classList.toggle('proficient', isProficient);
+        const sk = SKILLS.find(s => s.key === key);
+        const el = $('#contentCard').querySelector(`[data-skill-mod="${key}"]`);
+        const t = skillTotal(sk);
+        el.textContent = skillModStr(sk);
+        el.style.color = t >= 0 ? 'var(--good)' : 'var(--bad)';
       };
     });
   }
