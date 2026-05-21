@@ -307,28 +307,32 @@ Required structure:
       throw new Error(`"${spellName}" not found on the wiki.`);
 
     // ── Stats extraction ────────────────────────────────────────────────────
-    // Pull the raw HTML slice from "Casting Time:" through end of "Duration: …"
-    // then strip tags. Works regardless of what HTML element wraps the stats.
-    const statsHtmlMatch = rawHtml.match(/Casting Time:[\s\S]{0,700}?Duration:[^<\n]{0,120}/i);
+    // Capture the raw HTML from "Casting Time:" to the closing </p> of the stats block.
+    // The raw HTML has <strong>Duration:</strong> so the char after "Duration:" is "<";
+    // stopping at [^<] would miss the value — capturing to </p> avoids that entirely.
+    const statsHtmlMatch = rawHtml.match(/Casting Time:[\s\S]*?<\/p>/i)
+      || rawHtml.match(/Casting Time:[\s\S]{0,900}/i);   // fallback: no </p> found
     if (!statsHtmlMatch)
       throw new Error(`Stats not found for "${spellName}". Check the spell name.`);
 
     const statsText = statsHtmlMatch[0]
-      .replace(/<br\s*\/?>/gi, ' ')   // <br> → space (not newline)
-      .replace(/<[^>]+>/g, '')        // strip remaining tags
+      .replace(/<\/p[^>]*>/gi, '\n')  // </p> → newline (marks end of stats block)
+      .replace(/<br\s*\/?>/gi, ' ')   // <br>  → space
+      .replace(/<[^>]+>/g, '')        // strip all remaining tags
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&#39;/g, "'")
       .replace(/&quot;/g, '"')
-      .replace(/\s+/g, ' ')           // collapse whitespace to single space
+      .replace(/[ \t]+/g, ' ')        // collapse spaces/tabs (keep newlines)
       .trim();
 
-    // Each field: capture everything from the label to end-of-string, then cut at the next label
+    // Each field: capture from the label to end, then trim at the next label.
+    // Duration uses [^\n]+ to stop at the paragraph-end newline we inserted above.
     const g = (pat) => (statsText.match(pat)?.[1] || '').trim();
-    const casting_time = g(/Casting Time:\s*(.+)/i).replace(/\s*Range(?:\/Area)?:.*$/i, '').trim();
-    const range_area   = g(/Range(?:\/Area)?:\s*(.+)/i).replace(/\s*Components?:.*$/i, '').trim();
-    const components   = g(/Components?:\s*(.+)/i).replace(/\s*Duration:.*$/i, '').trim();
-    const duration     = g(/Duration:\s*(.+)/i);
+    const casting_time = g(/Casting Time:\s*(.+)/i) .replace(/\s*Range(?:\/Area)?:.*$/i,  '').trim();
+    const range_area   = g(/Range(?:\/Area)?:\s*(.+)/i).replace(/\s*Components?:.*$/i,    '').trim();
+    const components   = g(/Components?:\s*(.+)/i)  .replace(/\s*Duration:.*$/i,          '').trim();
+    const duration     = g(/Duration:\s*([^\n]+)/i);
 
     // ── Subtitle & description ───────────────────────────────────────────────
     const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
