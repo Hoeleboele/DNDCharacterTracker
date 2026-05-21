@@ -284,35 +284,64 @@ Required structure:
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
     const targetUrl = `https://dnd5e.wikidot.com/spell:${slug}`;
-    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
-    const resp = await fetch(proxyUrl);
-    if (!resp.ok) throw new Error(`Request failed (${resp.status})`);
-    const html = await resp.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const content = doc.querySelector('#page-content');
-    if (!content || content.textContent.includes('does not exist'))
+
+    // Try two CORS proxies; allorigins returns JSON, corsproxy returns raw HTML
+    let rawHtml = '';
+    for (const proxyUrl of [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+    ]) {
+      try {
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) continue;
+        const text = await resp.text();
+        rawHtml = (text.trimStart().startsWith('{'))
+          ? (JSON.parse(text).contents || '')
+          : text;
+        if (rawHtml.length > 500) break;
+      } catch { /* try next proxy */ }
+    }
+    if (!rawHtml) throw new Error('Could not reach the wiki. Check your internet connection.');
+
+    if (/does not exist/i.test(rawHtml))
       throw new Error(`"${spellName}" not found on the wiki.`);
 
-    // Work on the full text content so newlines between stat fields don't break extraction
-    const txt = content.textContent;
+    // ── Stats extraction ────────────────────────────────────────────────────
+    // Pull the raw HTML slice from "Casting Time:" through end of "Duration: …"
+    // then strip tags. Works regardless of what HTML element wraps the stats.
+    const statsHtmlMatch = rawHtml.match(/Casting Time:[\s\S]{0,700}?Duration:[^<\n]{0,120}/i);
+    if (!statsHtmlMatch)
+      throw new Error(`Stats not found for "${spellName}". Check the spell name.`);
 
-    // Subtitle: first line containing level/cantrip info
-    const subtitleMatch = txt.match(/^[ \t]*((?:\d\w*[- ]level|cantrip)\s+\w[\w\s]*)[ \t]*$/im);
-    const subtitle = subtitleMatch ? subtitleMatch[1].trim() : '';
+    const statsText = statsHtmlMatch[0]
+      .replace(/<br\s*\/?>/gi, ' ')   // <br> → space (not newline)
+      .replace(/<[^>]+>/g, '')        // strip remaining tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')           // collapse whitespace to single space
+      .trim();
 
-    // Stats: use [\s\S]+? so newlines between fields are handled, anchored to next field name
-    const g = (pat) => (txt.match(pat)?.[1] || '').trim().replace(/\s+/g, ' ');
-    const casting_time = g(/Casting Time:\s*([\s\S]+?)(?=\s*Range(?:\/Area)?:)/i);
-    const range_area   = g(/Range(?:\/Area)?:\s*([\s\S]+?)(?=\s*Components:)/i);
-    const components   = g(/Components:\s*([\s\S]+?)(?=\s*Duration:)/i);
-    const duration     = g(/Duration:\s*([^\n\r]+)/i);
+    // Each field ends exactly where the next label starts
+    const g = (pat) => (statsText.match(pat)?.[1] || '').trim();
+    const casting_time = g(/Casting Time:\s*(.+?)(?=\s*Range(?:\/Area)?:\s*\S)/i);
+    const range_area   = g(/Range(?:\/Area)?:\s*(.+?)(?=\s*Components?:\s*\S)/i);
+    const components   = g(/Components?:\s*(.+?)(?=\s*Duration:\s*\S)/i);
+    const duration     = g(/Duration:\s*(.+?)$/i);
 
-    // Description: paragraphs that are not stat lines, source, subtitle, or spell-list lines
+    // ── Subtitle & description ───────────────────────────────────────────────
+    const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
+    const pageContent = doc.querySelector('#page-content') || doc.body;
+    const fullTxt = pageContent.textContent;
+
+    const sub = fullTxt.match(/((?:\d+\w*[- ]level|cantrip)\s+\w[\w ]*)/i);
+    const subtitle = sub ? sub[1].trim() : '';
+
     const skipPat = /^(Casting Time|Range|Components|Duration|Source|Spell Lists)/i;
-    const descParts = Array.from(content.querySelectorAll('p'))
-      .map(p => p.textContent.trim())
-      .filter(t => t && !skipPat.test(t) && !/cantrip|\d+\w*[- ]level/i.test(t));
+    const descParts = Array.from(pageContent.querySelectorAll('p'))
+      .map(el => el.textContent.trim())
+      .filter(t => t.length > 15 && !skipPat.test(t) && !/cantrip|\d+\w*[- ]level/i.test(t));
 
     return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
   }
