@@ -323,12 +323,12 @@ Required structure:
       .replace(/\s+/g, ' ')           // collapse whitespace to single space
       .trim();
 
-    // Each field ends exactly where the next label starts
+    // Each field: capture everything from the label to end-of-string, then cut at the next label
     const g = (pat) => (statsText.match(pat)?.[1] || '').trim();
-    const casting_time = g(/Casting Time:\s*(.+?)(?=\s*Range(?:\/Area)?:\s*\S)/i);
-    const range_area   = g(/Range(?:\/Area)?:\s*(.+?)(?=\s*Components?:\s*\S)/i);
-    const components   = g(/Components?:\s*(.+?)(?=\s*Duration:\s*\S)/i);
-    const duration     = g(/Duration:\s*(.+?)$/i);
+    const casting_time = g(/Casting Time:\s*(.+)/i).replace(/\s*Range(?:\/Area)?:.*$/i, '').trim();
+    const range_area   = g(/Range(?:\/Area)?:\s*(.+)/i).replace(/\s*Components?:.*$/i, '').trim();
+    const components   = g(/Components?:\s*(.+)/i).replace(/\s*Duration:.*$/i, '').trim();
+    const duration     = g(/Duration:\s*(.+)/i);
 
     // ── Subtitle & description ───────────────────────────────────────────────
     const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
