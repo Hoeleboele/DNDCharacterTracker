@@ -36,7 +36,8 @@
         quests: [],
         notes: '',
         ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 },
-        skill_proficiencies: []
+        skill_proficiencies: [],
+        skill_disadvantages: []
       }
     };
   }
@@ -256,6 +257,7 @@ Required structure:
     }
 
     if (!Array.isArray(out.character.skill_proficiencies)) out.character.skill_proficiencies = [];
+    if (!Array.isArray(out.character.skill_disadvantages)) out.character.skill_disadvantages = [];
 
     return out;
   }
@@ -986,6 +988,7 @@ Required structure:
   function renderStats(c){
     if (!c.ability_scores) c.ability_scores = { str:10, dex:10, con:10, int:10, wis:10, cha:10 };
     if (!Array.isArray(c.skill_proficiencies)) c.skill_proficiencies = [];
+    if (!Array.isArray(c.skill_disadvantages)) c.skill_disadvantages = [];
     const as = c.ability_scores;
     const profBonus = c.combat.proficiency_bonus || 2;
 
@@ -1052,9 +1055,11 @@ Required structure:
             ${SKILLS.map(sk => {
               const t = skillTotal(sk);
               const isProficient = c.skill_proficiencies.includes(sk.key);
+              const isDis = c.skill_disadvantages.includes(sk.key);
               return `
                 <div class="skill-row">
                   <button class="skill-prof-dot${isProficient ? ' proficient' : ''}" data-skill-toggle="${sk.key}" title="Toggle proficiency"></button>
+                  <button class="skill-dis-btn${isDis ? ' active' : ''}" data-skill-dis="${sk.key}" title="Toggle disadvantage">DIS</button>
                   <span class="skill-mod-val" data-skill-mod="${sk.key}" style="color:${t >= 0 ? 'var(--good)' : 'var(--bad)'}">${skillModStr(sk)}</span>
                   <span class="skill-name">${sk.label}</span>
                   <span class="skill-stat-tag">${statAbbr[sk.stat]}</span>
@@ -1097,6 +1102,18 @@ Required structure:
         const t = skillTotal(sk);
         el.textContent = skillModStr(sk);
         el.style.color = t >= 0 ? 'var(--good)' : 'var(--bad)';
+        saveToLocalStorage();
+      };
+    });
+
+    $('#contentCard').querySelectorAll('[data-skill-dis]').forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.skillDis;
+        const idx = c.skill_disadvantages.indexOf(key);
+        if (idx === -1) c.skill_disadvantages.push(key);
+        else c.skill_disadvantages.splice(idx, 1);
+        btn.classList.toggle('active', c.skill_disadvantages.includes(key));
+        saveToLocalStorage();
       };
     });
   }
@@ -1229,7 +1246,7 @@ Required structure:
       const qty = clamp(toInt($('#quickItemQty').value, 1), 1, 999);
       if (!name) return;
       inv.items = inv.items || [];
-      inv.items.push({ name, qty, equipped:false, notes:'' });
+      inv.items.push({ name, qty, uses_tracked: qty > 1, equipped:false, notes:'' });
       $('#quickItemName').value = '';
       $('#quickItemQty').value = 1;
       c.inventory = inv;
@@ -1244,7 +1261,7 @@ Required structure:
           <div>
             <div class="row" style="justify-content:space-between;">
               <b>${escapeHtml(it.name || 'Item')}</b>
-              <span class="pill">qty ${clamp(toInt(it.qty,1),1,999)}</span>
+              <span class="pill">qty ${Math.max(toInt(it.qty,0),0)}</span>
             </div>
             <div class="mini">${escapeHtml(it.notes || '')}</div>
             <div class="row" style="margin-top:8px; gap:8px;">
@@ -1255,6 +1272,8 @@ Required structure:
             </div>
           </div>
           <div class="row" style="justify-content:flex-end;">
+            ${(it.uses_tracked || it.qty > 1) && it.qty > 0 ? `<button class="btn" data-it-use="${i}">Use</button>` : ''}
+            <button class="btn" data-it-name="${i}">Name</button>
             <button class="btn" data-it-qty="${i}">Qty</button>
             <button class="btn" data-it-notes="${i}">Notes</button>
             <button class="btn danger" data-it-del="${i}">Delete</button>
@@ -1268,12 +1287,30 @@ Required structure:
         render();
       });
 
+      list.querySelectorAll('[data-it-use]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.itUse, -1);
+        items[i].uses_tracked = true;
+        items[i].qty = Math.max(items[i].qty - 1, 0);
+        saveToLocalStorage();
+        render();
+      });
+
+      list.querySelectorAll('[data-it-name]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.itName, -1);
+        const it = items[i];
+        const n = prompt('Item name:', it.name ?? '');
+        if (n == null) return;
+        it.name = n.trim() || it.name;
+        render();
+      });
+
       list.querySelectorAll('[data-it-qty]').forEach(btn => btn.onclick = () => {
         const i = toInt(btn.dataset.itQty, -1);
         const it = items[i];
         const q = prompt('Quantity:', it.qty ?? 1);
         if (q == null) return;
         it.qty = clamp(toInt(q, 1), 1, 999);
+        if (it.qty > 1) it.uses_tracked = true;
         render();
       });
 
