@@ -175,6 +175,7 @@ Required structure:
   // ── Multiplayer ────────────────────────────────────────────────────────────
   let gameMode = null;       // null | 'solo' | 'host' | 'player'
   let mpPeer = null;
+  let autosaveInterval = null;
   let mpHostConn = null;     // player → host connection
   let mpPlayerConns = {};    // host's map: peerId → { conn, state }
   let mpRoomCode = '';
@@ -209,6 +210,7 @@ Required structure:
     gameMode = 'solo';
     document.getElementById('landingOverlay').style.display = 'none';
     document.querySelector('.app').style.display = '';
+    startAutosave();
     render();
   }
 
@@ -227,6 +229,7 @@ Required structure:
         document.getElementById('landingOverlay').style.display = 'none';
         document.querySelector('.app').style.display = 'none';
         document.getElementById('hostView').style.display = 'block';
+        startAutosave();
         renderHostView();
       });
       mpPeer.on('error', (err) => {
@@ -265,6 +268,7 @@ Required structure:
       mpHostConn.on('open', () => {
         document.getElementById('landingOverlay').style.display = 'none';
         document.querySelector('.app').style.display = '';
+        startAutosave();
         syncToHost();
         render();
       });
@@ -292,9 +296,11 @@ Required structure:
     if (gameMode === 'player' && mpHostConn && mpHostConn.open) {
       mpHostConn.send({ type: 'sync', state });
     }
+    saveToLocalStorage();
   }
 
   function returnToMenu(){
+    stopAutosave();
     if (mpPeer) { try { mpPeer.destroy(); } catch(_){} mpPeer = null; }
     mpHostConn = null;
     mpPlayerConns = {};
@@ -865,6 +871,54 @@ Required structure:
     return Number.isFinite(n) ? Math.trunc(n) : fallback;
   }
 
+  async function wikiLookupItem(itemName, itemType) {
+    const url = itemType === 'armor'
+      ? 'https://dnd5e.wikidot.com/armor'
+      : 'https://dnd5e.wikidot.com/weapons';
+
+    let rawHtml = '';
+    for (const proxyUrl of [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+    ]) {
+      try {
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) continue;
+        const text = await resp.text();
+        rawHtml = (text.trimStart().startsWith('{'))
+          ? (JSON.parse(text).contents || '')
+          : text;
+        if (rawHtml.length > 500) break;
+      } catch { /* try next proxy */ }
+    }
+    if (!rawHtml) throw new Error('Could not reach the wiki.');
+
+    const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
+    const rows = Array.from(doc.querySelectorAll('table tr'));
+    const nameLower = itemName.toLowerCase().trim();
+
+    for (const row of rows) {
+      const cells = Array.from(row.querySelectorAll('td'));
+      if (cells.length < 2) continue;
+      const cellName = cells[0].textContent.trim().toLowerCase();
+      if (cellName !== nameLower) continue;
+
+      if (itemType === 'armor') {
+        // cols: Name | AC | Strength | Stealth | Weight | Cost
+        const ac = cells[1] ? cells[1].textContent.trim() : '';
+        if (!ac) throw new Error(`AC not found for "${itemName}".`);
+        return `AC: ${ac}`;
+      } else {
+        // cols: Name | Cost | Damage | Weight | Properties
+        const damage = cells[2] ? cells[2].textContent.trim() : '';
+        const props  = cells[4] ? cells[4].textContent.trim() : '';
+        if (!damage) throw new Error(`Damage not found for "${itemName}".`);
+        return props && props !== '—' ? `${damage} - ${props}` : damage;
+      }
+    }
+    throw new Error(`"${itemName}" not found on the wiki.`);
+  }
+
   async function wikiLookupSpell(spellName) {
     const slug = spellName.toLowerCase()
       .replace(/'/g, '')
@@ -940,6 +994,15 @@ Required structure:
   function saveToLocalStorage(){
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
     catch { return false; }
+  }
+
+  function startAutosave(){
+    stopAutosave();
+    autosaveInterval = setInterval(() => { saveToLocalStorage(); }, 30000);
+  }
+
+  function stopAutosave(){
+    if (autosaveInterval) { clearInterval(autosaveInterval); autosaveInterval = null; }
   }
 
   function loadFromLocalStorage(){
@@ -1938,13 +2001,22 @@ Required structure:
 
   function renderInventory(c){
     const inv = c.inventory || { currency:{cp:0,sp:0,ep:0,gp:0,pp:0}, items:[] };
+    const ITEM_TYPES = ['weapon','armor','misc'];
 
     $('#contentCard').innerHTML = `
       <div class="grid2">
         <div class="col">
-          <h2>Equipped / Items</h2>
+          <h2>Equipped</h2>
+          <div class="list" id="equippedList" style="margin-top:10px;"></div>
+          <h2 style="margin-top:14px;">Inventory</h2>
           <div class="list" id="itemsList" style="margin-top:10px;"></div>
-          <button class="btn" id="btnAddItem">Add Item</button>
+          <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap;">
+            <input type="text" id="newItemName" placeholder="Item name" style="flex:1; min-width:140px;" />
+            <select id="newItemType" style="padding:6px 10px; border-radius:var(--radius); background:var(--btn); color:var(--text); border:1px solid var(--line);">
+              ${ITEM_TYPES.map(t => `<option value="${t}">${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
+            </select>
+            <button class="btn" id="btnAddItem">Add Item</button>
+          </div>
         </div>
 
         <div class="col">
@@ -1956,16 +2028,6 @@ Required structure:
             ${numField('GP','inventory.currency.gp', inv.currency.gp)}
             ${numField('PP','inventory.currency.pp', inv.currency.pp)}
           </div>
-
-          <h2 style="margin-top:14px;">Quick Add</h2>
-          <div class="mini">Add loot fast. No judgement about your 47th rope.</div>
-          <div class="row" style="margin-top:8px;">
-            <input type="text" id="quickItemName" placeholder="Item name" />
-            <input type="number" id="quickItemQty" min="1" step="1" value="1" style="max-width:110px;" />
-          </div>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn" id="btnQuickAdd">Add</button>
-          </div>
         </div>
       </div>
     `;
@@ -1975,98 +2037,107 @@ Required structure:
     renderItems();
 
     $('#btnAddItem').onclick = () => {
+      const name = ($('#newItemName').value || '').trim();
+      if (!name) { $('#newItemName').focus(); return; }
+      const type = $('#newItemType').value || 'misc';
       inv.items = inv.items || [];
-      inv.items.push({ name:'New Item', qty:1, equipped:false, notes:'' });
+      inv.items.push({ name, type, qty:1, equipped:false, notes:'' });
       c.inventory = inv;
-      render();
-    };
-
-    $('#btnQuickAdd').onclick = () => {
-      const name = ($('#quickItemName').value || '').trim();
-      const qty = clamp(toInt($('#quickItemQty').value, 1), 1, 999);
-      if (!name) return;
-      inv.items = inv.items || [];
-      inv.items.push({ name, qty, uses_tracked: qty > 1, equipped:false, notes:'' });
-      $('#quickItemName').value = '';
-      $('#quickItemQty').value = 1;
-      c.inventory = inv;
+      $('#newItemName').value = '';
       render();
     };
 
     function renderItems(){
-      const list = $('#itemsList');
       const items = inv.items || [];
-      list.innerHTML = items.length ? items.map((it,i)=>`
-        <div class="item">
-          <div>
-            <div class="row" style="justify-content:space-between;">
-              <b>${escapeHtml(it.name || 'Item')}</b>
-              <span class="pill">qty ${Math.max(toInt(it.qty,0),0)}</span>
+      const equipped = items.filter(it => it.equipped);
+      const unequipped = items.filter(it => !it.equipped);
+
+      function itemHtml(it, i){
+        const typeTag = it.type ? `<span class="pill" style="text-transform:capitalize;">${escapeHtml(it.type)}</span>` : '';
+        return `
+          <div class="item">
+            <div style="flex:1;">
+              <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:4px;">
+                <div class="row" style="gap:6px; align-items:center;">
+                  <b>${escapeHtml(it.name || 'Item')}</b>
+                  ${typeTag}
+                </div>
+                <div class="row" style="gap:4px; align-items:center;">
+                  ${!['weapon','armor'].includes(it.type) ? `
+                    <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-dec="${i}">−</button>
+                    <span class="pill">${Math.max(toInt(it.qty,0),0)}</span>
+                    <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-inc="${i}">+</button>
+                  ` : ''}
+                </div>
+              </div>
+              ${it.notes ? `<div class="mini" style="margin-top:4px;">${escapeHtml(it.notes)}</div>` : ''}
             </div>
-            <div class="mini">${escapeHtml(it.notes || '')}</div>
-            <div class="row" style="margin-top:8px; gap:8px;">
-              <label class="pill" style="cursor:pointer;">
-                <input type="checkbox" data-eq="${i}" ${it.equipped ? 'checked' : ''} />
-                equipped
-              </label>
+            <div class="row" style="justify-content:flex-end; flex-wrap:wrap;">
+              <button class="btn" data-it-equip="${i}">${it.equipped ? 'Unequip' : 'Equip'}</button>
+              ${['weapon','armor'].includes(it.type) ? `<button class="btn" data-it-lookup="${i}">Lookup</button>` : ''}
+              <button class="btn" data-it-notes="${i}">Notes</button>
+              <button class="btn danger" data-it-del="${i}">Delete</button>
             </div>
           </div>
-          <div class="row" style="justify-content:flex-end;">
-            ${(it.uses_tracked || it.qty > 1) && it.qty > 0 ? `<button class="btn" data-it-use="${i}">Use</button>` : ''}
-            <button class="btn" data-it-name="${i}">Name</button>
-            <button class="btn" data-it-qty="${i}">Qty</button>
-            <button class="btn" data-it-notes="${i}">Notes</button>
-            <button class="btn danger" data-it-del="${i}">Delete</button>
-          </div>
-        </div>
-      `).join('') : `<div class="mini">No items listed.</div>`;
+        `;
+      }
 
-      list.querySelectorAll('[data-eq]').forEach(cb => cb.onchange = () => {
-        const i = toInt(cb.dataset.eq, -1);
-        items[i].equipped = !!cb.checked;
-        render();
-      });
+      $('#equippedList').innerHTML = equipped.length
+        ? equipped.map(it => itemHtml(it, items.indexOf(it))).join('')
+        : `<div class="mini">Nothing equipped.</div>`;
 
-      list.querySelectorAll('[data-it-use]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.itUse, -1);
-        items[i].uses_tracked = true;
-        items[i].qty = Math.max(items[i].qty - 1, 0);
-        saveToLocalStorage();
-        render();
-      });
+      $('#itemsList').innerHTML = unequipped.length
+        ? unequipped.map(it => itemHtml(it, items.indexOf(it))).join('')
+        : `<div class="mini">Inventory is empty.</div>`;
 
-      list.querySelectorAll('[data-it-name]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.itName, -1);
-        const it = items[i];
-        const n = prompt('Item name:', it.name ?? '');
-        if (n == null) return;
-        it.name = n.trim() || it.name;
-        render();
-      });
+      ['#equippedList','#itemsList'].forEach(sel => {
+        const list = $(sel);
 
-      list.querySelectorAll('[data-it-qty]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.itQty, -1);
-        const it = items[i];
-        const q = prompt('Quantity:', it.qty ?? 1);
-        if (q == null) return;
-        it.qty = clamp(toInt(q, 1), 1, 999);
-        if (it.qty > 1) it.uses_tracked = true;
-        render();
-      });
+        list.querySelectorAll('[data-it-equip]').forEach(btn => btn.onclick = () => {
+          items[toInt(btn.dataset.itEquip,-1)].equipped ^= true;
+          render();
+        });
 
-      list.querySelectorAll('[data-it-notes]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.itNotes, -1);
-        const it = items[i];
-        const n = prompt('Notes:', it.notes ?? '');
-        if (n == null) return;
-        it.notes = n;
-        render();
-      });
+        list.querySelectorAll('[data-it-lookup]').forEach(btn => btn.onclick = async () => {
+          const i = toInt(btn.dataset.itLookup, -1);
+          const it = items[i];
+          btn.disabled = true;
+          btn.textContent = '…';
+          try {
+            const result = await wikiLookupItem(it.name, it.type);
+            it.notes = result;
+            render();
+          } catch (e) {
+            toast(e.message || 'Lookup failed.');
+            btn.disabled = false;
+            btn.textContent = 'Lookup';
+          }
+        });
 
-      list.querySelectorAll('[data-it-del]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.itDel, -1);
-        items.splice(i, 1);
-        render();
+        list.querySelectorAll('[data-it-inc]').forEach(btn => btn.onclick = () => {
+          const it = items[toInt(btn.dataset.itInc,-1)];
+          it.qty = clamp(toInt(it.qty,0) + 1, 0, 999);
+          render();
+        });
+
+        list.querySelectorAll('[data-it-dec]').forEach(btn => btn.onclick = () => {
+          const it = items[toInt(btn.dataset.itDec,-1)];
+          it.qty = clamp(toInt(it.qty,0) - 1, 0, 999);
+          render();
+        });
+
+        list.querySelectorAll('[data-it-notes]').forEach(btn => btn.onclick = () => {
+          const it = items[toInt(btn.dataset.itNotes,-1)];
+          const n = prompt('Notes:', it.notes ?? '');
+          if (n == null) return;
+          it.notes = n;
+          render();
+        });
+
+        list.querySelectorAll('[data-it-del]').forEach(btn => btn.onclick = () => {
+          items.splice(toInt(btn.dataset.itDel,-1), 1);
+          render();
+        });
       });
     }
   }
