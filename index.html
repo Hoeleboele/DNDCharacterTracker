@@ -31,6 +31,15 @@
             <button class="btn landing-btn" id="btnNewCharCancel" style="flex:1;">Cancel</button>
           </div>
         </div>
+        <button class="btn landing-btn" id="btnLoadFromCode" style="margin-top:6px; width:100%;">Load from Code</button>
+        <div id="loadCodeForm" style="display:none; margin-top:8px;">
+          <textarea id="landingCodeInput" placeholder="Paste share code here…" style="width:100%; min-height:60px; font-size:11px; word-break:break-all;"></textarea>
+          <div id="loadCodeError" class="mini" style="display:none; color:var(--bad); margin-top:4px;"></div>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button class="btn landing-btn" id="btnLandingLoadCode" style="flex:1;">Load</button>
+            <button class="btn landing-btn" id="btnCancelLoadCode" style="flex:1;">Cancel</button>
+          </div>
+        </div>
         <button class="btn landing-btn" id="btnBackFromPicker" style="margin-top:6px; width:100%;">← Back</button>
       </div>
       <!-- Mode picker (step 3) -->
@@ -65,20 +74,18 @@
         <div class="grid2">
           <div class="col">
             <h2>Character</h2>
-            <button class="btn" id="btnNew">New Character</button>
-            <button class="btn" id="btnDownload">Download JSON</button>
+            <button class="btn" id="btnGetCode">Get Share Code</button>
+            <div id="codeOutputBox" style="display:none; margin-top:6px;">
+              <textarea id="codeOutput" readonly style="min-height:60px; font-size:11px; word-break:break-all;"></textarea>
+              <button class="btn" id="btnCopyCode" style="margin-top:4px; width:100%;">Copy Code</button>
+            </div>
             <button class="btn danger" id="btnWipe">Wipe Local Save</button>
             <button class="btn" id="btnMainMenu" style="margin-top:8px;">Return to Main Menu</button>
           </div>
           <div class="col">
-            <h2>Import JSON</h2>
-            <textarea id="importText" placeholder="Paste character JSON here…" style="min-height:80px;"></textarea>
-            <button class="btn" id="btnLoad">Load JSON</button>
-            <button class="btn" id="btnLoadExample">Load Example</button>
-            <label class="btn" style="text-align:center; cursor:pointer;">
-              Load from File
-              <input type="file" id="fileInput" accept=".json" style="display:none;" />
-            </label>
+            <h2>Load Share Code</h2>
+            <textarea id="codeImportText" placeholder="Paste share code here…" style="min-height:60px; font-size:11px; word-break:break-all;"></textarea>
+            <button class="btn" id="btnLoadCode">Load Code</button>
           </div>
         </div>
       </div>

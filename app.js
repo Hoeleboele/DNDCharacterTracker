@@ -252,6 +252,8 @@ Required structure:
     document.getElementById('landingStatus').textContent = '';
     document.getElementById('newCharForm').style.display = 'none';
     document.getElementById('btnNewChar').style.display = '';
+    document.getElementById('loadCodeForm').style.display = 'none';
+    document.getElementById('btnLoadFromCode').style.display = '';
 
     const chars = loadAllChars();
     const names = Object.keys(chars).sort();
@@ -320,6 +322,36 @@ Required structure:
     };
 
     document.getElementById('btnBackFromPicker').onclick = () => showLanding();
+
+    document.getElementById('btnLoadFromCode').onclick = () => {
+      document.getElementById('loadCodeForm').style.display = 'block';
+      document.getElementById('btnLoadFromCode').style.display = 'none';
+      document.getElementById('loadCodeError').style.display = 'none';
+      document.getElementById('landingCodeInput').value = '';
+      document.getElementById('landingCodeInput').focus();
+    };
+
+    document.getElementById('btnLandingLoadCode').onclick = async () => {
+      const code = (document.getElementById('landingCodeInput').value || '').trim();
+      const errEl = document.getElementById('loadCodeError');
+      if (!code) { errEl.textContent = 'Paste a code first.'; errEl.style.display = 'block'; return; }
+      try {
+        const loaded = await codeToChar(code);
+        state = normalize(loaded);
+        currentSaveName = state.character.name || 'Unnamed';
+        saveToLocalStorage();
+        showModePicker(currentSaveName);
+      } catch {
+        errEl.textContent = 'Invalid code — could not load character.';
+        errEl.style.display = 'block';
+      }
+    };
+
+    document.getElementById('btnCancelLoadCode').onclick = () => {
+      document.getElementById('loadCodeForm').style.display = 'none';
+      document.getElementById('btnLoadFromCode').style.display = '';
+      document.getElementById('loadCodeError').style.display = 'none';
+    };
   }
 
   function showModePicker(charName){
@@ -1265,7 +1297,6 @@ Required structure:
         </div>
         <div class="row" style="gap:8px;">
           <button class="btn" id="btnSaveLocal">Save</button>
-          <button class="btn" id="btnCopyJson">Copy JSON</button>
           <button class="btn${menuOpen ? ' active' : ''}" id="btnMenuToggle">&#9776; Menu</button>
         </div>
       </div>
@@ -1276,15 +1307,6 @@ Required structure:
     $('#tabsCard').querySelectorAll('.tab').forEach(el => {
       el.onclick = () => { activeTab = el.dataset.tab; menuOpen = false; renderContent(); renderTabs(); };
     });
-
-    $('#btnCopyJson').onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(JSON.stringify(state, null, 2));
-        toast('Copied JSON to clipboard.');
-      } catch {
-        toast('Clipboard copy failed. (Browser blocked it.)');
-      }
-    };
 
     $('#btnMenuToggle').onclick = () => { menuOpen = !menuOpen; renderTabs(); };
 
@@ -2529,46 +2551,77 @@ Required structure:
   }
 
   // --- Sidebar actions ---
-  $('#btnNew').onclick = () => { state = newBlank(); activeTab='overview'; render(); };
-
   $('#btnMainMenu').onclick = () => returnToMenu();
 
-  $('#btnLoad').onclick = () => {
-    const txt = $('#importText').value;
-    if (!txt.trim()) return toast('Paste JSON first.');
+  async function charToCode(charState) {
+    const bytes = new TextEncoder().encode(JSON.stringify(charState));
+    const cs = new CompressionStream('deflate-raw');
+    const w = cs.writable.getWriter();
+    w.write(bytes); w.close();
+    const chunks = [];
+    const reader = cs.readable.getReader();
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+    let len = 0; chunks.forEach(c => len += c.length);
+    const merged = new Uint8Array(len); let off = 0;
+    chunks.forEach(c => { merged.set(c, off); off += c.length; });
+    let bin = ''; merged.forEach(b => bin += String.fromCharCode(b));
+    return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  }
+
+  async function codeToChar(code) {
+    const b64 = code.trim().replace(/-/g,'+').replace(/_/g,'/');
+    const padded = b64 + '=='.slice(0, (4 - b64.length % 4) % 4);
+    const bin = atob(padded);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const ds = new DecompressionStream('deflate-raw');
+    const w = ds.writable.getWriter();
+    w.write(bytes); w.close();
+    const chunks = [];
+    const reader = ds.readable.getReader();
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+    let len = 0; chunks.forEach(c => len += c.length);
+    const merged = new Uint8Array(len); let off = 0;
+    chunks.forEach(c => { merged.set(c, off); off += c.length; });
+    return JSON.parse(new TextDecoder().decode(merged));
+  }
+
+  $('#btnGetCode').onclick = async () => {
     try {
-      const parsed = parseJSONLoose(txt);
-      state = normalize(parsed);
-      activeTab = 'overview';
-      render();
-      toast('Loaded.');
+      const code = await charToCode(state);
+      $('#codeOutput').value = code;
+      $('#codeOutputBox').style.display = 'block';
+      toast('Code generated!');
     } catch (e) {
-      toast('JSON parse failed: ' + (e?.message || String(e)));
+      toast('Failed to generate code: ' + e.message);
     }
   };
 
-  $('#btnLoadExample').onclick = () => { state = normalize(EXAMPLE); activeTab='overview'; render(); };
+  $('#btnCopyCode').onclick = () => {
+    const code = $('#codeOutput').value;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => toast('Code copied!'), () => {
+      $('#codeOutput').select();
+      document.execCommand('copy');
+      toast('Code copied!');
+    });
+  };
 
-  $('#fileInput').onchange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  $('#btnLoadCode').onclick = async () => {
+    const code = ($('#codeImportText').value || '').trim();
+    if (!code) { toast('Paste a share code first.'); return; }
     try {
-      const txt = await file.text();
-      const parsed = parseJSONLoose(txt);
-      state = normalize(parsed);
-      activeTab='overview';
+      const loaded = await codeToChar(code);
+      state = normalize(loaded);
+      currentSaveName = state.character.name || 'Unnamed';
+      saveToLocalStorage();
+      activeTab = 'overview';
+      menuOpen = false;
       render();
-      toast('Loaded from file.');
-    } catch (err) {
-      toast('File load failed: ' + (err?.message || String(err)));
-    } finally {
-      $('#fileInput').value = '';
+      toast('Character loaded from code!');
+    } catch (e) {
+      toast('Invalid code — could not load character.');
     }
-  };
-
-  $('#btnDownload').onclick = () => {
-    state.exported_at = new Date().toISOString();
-    downloadJSON();
   };
 
   $('#btnWipe').onclick = () => {
