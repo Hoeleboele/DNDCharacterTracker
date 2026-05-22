@@ -54,6 +54,7 @@
     .host-grid{
       display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
       gap:16px; max-width:1400px; margin:0 auto;
+      align-items: start;
     }
 
     .app{
