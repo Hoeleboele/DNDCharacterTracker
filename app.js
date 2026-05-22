@@ -261,9 +261,16 @@ Required structure:
 
     list.innerHTML = names.length
       ? names.map(n => `
-          <div style="display:flex; gap:6px; align-items:center;">
-            <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)}</button>
-            <button class="btn danger" data-chardelete="${escapeAttr(n)}" style="padding:6px 10px;" title="Delete">✕</button>
+          <div data-charblock="${escapeAttr(n)}">
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)}</button>
+              <button class="btn" data-charexport="${escapeAttr(n)}" style="padding:6px 10px;" title="Export Code">⬆</button>
+              <button class="btn danger" data-chardelete="${escapeAttr(n)}" style="padding:6px 10px;" title="Delete">✕</button>
+            </div>
+            <div data-codearea="${escapeAttr(n)}" style="display:none; margin-top:4px;">
+              <textarea readonly style="width:100%; min-height:52px; font-size:10px; word-break:break-all;"></textarea>
+              <button class="btn" data-codecopy="${escapeAttr(n)}" style="margin-top:4px; width:100%;">Copy Code</button>
+            </div>
           </div>`).join('')
       : `<div class="mini" style="text-align:center; padding:10px;">No saved characters yet.</div>`;
 
@@ -279,6 +286,27 @@ Required structure:
       if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
       deleteChar(name);
       showCharPicker();
+    });
+
+    list.querySelectorAll('[data-charexport]').forEach(btn => btn.onclick = async () => {
+      const name = btn.dataset.charexport;
+      const block = list.querySelector(`[data-codearea="${CSS.escape(name)}"]`);
+      const ta = block.querySelector('textarea');
+      if (block.style.display !== 'none') { block.style.display = 'none'; return; }
+      btn.textContent = '…';
+      try {
+        ta.value = await charToCode(normalize(chars[name]));
+        block.style.display = 'block';
+      } catch { alert('Failed to generate code.'); }
+      btn.textContent = '⬆';
+    });
+
+    list.querySelectorAll('[data-codecopy]').forEach(btn => btn.onclick = () => {
+      const name = btn.dataset.codecopy;
+      const ta = list.querySelector(`[data-codearea="${CSS.escape(name)}"] textarea`);
+      if (!ta?.value) return;
+      navigator.clipboard.writeText(ta.value).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy Code', 1500); })
+        .catch(() => { ta.select(); document.execCommand('copy'); btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy Code', 1500); });
     });
 
     document.getElementById('btnNewChar').onclick = () => {
@@ -1167,13 +1195,28 @@ Required structure:
     return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
   }
 
+  function flashSaveBtn(msg, duration) {
+    const btn = document.getElementById('btnSaveLocal');
+    if (!btn) return;
+    btn.textContent = msg;
+    clearTimeout(flashSaveBtn._t);
+    if (duration > 0) flashSaveBtn._t = setTimeout(() => {
+      const b = document.getElementById('btnSaveLocal');
+      if (b) b.textContent = 'Save';
+    }, duration);
+  }
+
   function saveToLocalStorage(){
     return saveChar(state);
   }
 
   function startAutosave(){
     stopAutosave();
-    autosaveInterval = setInterval(() => { saveToLocalStorage(); }, 30000);
+    autosaveInterval = setInterval(() => {
+      flashSaveBtn('Saving…', 0);
+      const ok = saveToLocalStorage();
+      flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
+    }, 30000);
   }
 
   function stopAutosave(){
@@ -1297,23 +1340,28 @@ Required structure:
         </div>
         <div class="row" style="gap:8px;">
           <button class="btn" id="btnSaveLocal">Save</button>
-          <button class="btn${menuOpen ? ' active' : ''}" id="btnMenuToggle">&#9776; Menu</button>
+          <button class="btn" id="btnMenuToggle">Main Menu</button>
         </div>
       </div>
     `;
 
-    $('#menuPanel').style.display = menuOpen ? 'block' : 'none';
+    $('#menuPanel').style.display = 'none';
 
     $('#tabsCard').querySelectorAll('.tab').forEach(el => {
-      el.onclick = () => { activeTab = el.dataset.tab; menuOpen = false; renderContent(); renderTabs(); };
+      el.onclick = () => { activeTab = el.dataset.tab; renderContent(); renderTabs(); };
     });
 
-    $('#btnMenuToggle').onclick = () => { menuOpen = !menuOpen; renderTabs(); };
+    $('#btnMenuToggle').onclick = () => {
+      flashSaveBtn('Saving…', 0);
+      saveToLocalStorage();
+      returnToMenu();
+    };
 
     $('#btnSaveLocal').onclick = () => {
       state.exported_at = new Date().toISOString();
+      flashSaveBtn('Saving…', 0);
       const ok = saveToLocalStorage();
-      toast(ok ? 'Saved to browser.' : 'Save failed. (Storage blocked?)');
+      flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     };
   }
 
