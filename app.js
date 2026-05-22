@@ -436,6 +436,11 @@ Required structure:
         return;
       }
       const existing = loadAllChars();
+      if (Object.keys(existing).length >= 3) {
+        errEl.textContent = 'Character limit reached (3 max). Delete a character to create a new one.';
+        errEl.style.display = 'block';
+        return;
+      }
       if (existing[name]) {
         errEl.textContent = `"${name}" already exists. Choose a different name.`;
         errEl.style.display = 'block';
@@ -475,6 +480,13 @@ Required structure:
       if (!code) { errEl.textContent = 'Paste a code first.'; errEl.style.display = 'block'; return; }
       try {
         const loaded = await codeToChar(code);
+        const existing = loadAllChars();
+        const loadedName = normalize(loaded).character.name || 'Unnamed';
+        if (!existing[loadedName] && Object.keys(existing).length >= 3) {
+          errEl.textContent = 'Character limit reached (3 max). Delete a character to load a new one.';
+          errEl.style.display = 'block';
+          return;
+        }
         state = normalize(loaded);
         currentSaveName = state.character.name || 'Unnamed';
         saveToLocalStorage();
