@@ -239,7 +239,8 @@ Required structure:
   let mpViewingPlayer = null;
   let mpDetailTab = 'overview';
   let fbUser = null;           // current Firebase authenticated user
-  const cloudSyncedNames = new Set(); // names known to exist in cloud
+  // Maps character name → JSON string of last cloud-synced state (for drift detection)
+  const cloudSyncedData = new Map();
 
   // --- Firebase auth state ---
   fbAuth.onAuthStateChanged(async (user) => {
@@ -274,6 +275,7 @@ Required structure:
           const chars = loadAllChars();
           await Promise.all(Object.values(chars).map(c => saveCharToCloud(c, null)));
           btn.textContent = '☁ Saved ✓';
+          if (document.getElementById('landingCharPicker').style.display !== 'none') showCharPicker();
         } catch { btn.textContent = '☁ Failed'; }
         setTimeout(() => { btn.textContent = '☁ Save All to Cloud'; btn.disabled = false; }, 2000);
       };
@@ -294,7 +296,10 @@ Required structure:
       const snap = await fbDb.collection('users').doc(fbUser.uid).collection('characters').get();
       if (snap.empty) return;
       const chars = loadAllChars();
-      snap.forEach(d => { if (d.data().state) { chars[d.id] = d.data().state; cloudSyncedNames.add(d.id); } });
+      snap.forEach(d => {
+        const s = d.data().state;
+        if (s) { chars[d.id] = s; cloudSyncedData.set(d.id, JSON.stringify(s)); }
+      });
       localStorage.setItem(CHARS_KEY, JSON.stringify(chars));
     } catch (e) { console.warn('Cloud pull failed:', e); }
   }
@@ -305,8 +310,8 @@ Required structure:
       const name = charState.character.name || 'Unnamed';
       const col = fbDb.collection('users').doc(fbUser.uid).collection('characters');
       await col.doc(name).set({ state: charState, updatedAt: new Date().toISOString() });
-      cloudSyncedNames.add(name);
-      if (oldName && oldName !== name) { await col.doc(oldName).delete(); cloudSyncedNames.delete(oldName); }
+      cloudSyncedData.set(name, JSON.stringify(charState));
+      if (oldName && oldName !== name) { await col.doc(oldName).delete(); cloudSyncedData.delete(oldName); }
     } catch (e) { console.warn('Cloud save failed:', e); }
   }
 
@@ -314,7 +319,7 @@ Required structure:
     if (!fbUser) return;
     try {
       await fbDb.collection('users').doc(fbUser.uid).collection('characters').doc(name).delete();
-      cloudSyncedNames.delete(name);
+      cloudSyncedData.delete(name);
     } catch (e) { console.warn('Cloud delete failed:', e); }
   }
 
@@ -335,6 +340,18 @@ Required structure:
     updateAuthBar();
   }
 
+  function charCloudBadge(name, charState) {
+    if (!fbUser) return '';
+    const inSync = cloudSyncedData.has(name) && cloudSyncedData.get(name) === JSON.stringify(charState);
+    const notInCloud = !cloudSyncedData.has(name);
+    const color = inSync ? 'var(--accent)' : 'var(--muted)';
+    const tip   = inSync    ? 'In sync with cloud'
+                : notInCloud ? 'Not saved to cloud'
+                :              'Local changes \u2014 not yet saved to cloud';
+    const icon  = inSync ? '\u2601' : '\u25cb';
+    return ` <span style="font-size:11px;color:${color};" title="${tip}">${icon}</span>`;
+  }
+
   function showCharPicker(){
     document.getElementById('landingMainBtns').style.display = 'none';
     document.getElementById('landingCharPicker').style.display = 'block';
@@ -353,7 +370,7 @@ Required structure:
       ? names.map(n => `
           <div data-charblock="${escapeAttr(n)}">
             <div style="display:flex; gap:6px; align-items:center;">
-              <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)} ${fbUser ? `<span style="font-size:11px;" title="${cloudSyncedNames.has(n) ? 'Saved to cloud' : 'Not saved to cloud'}">${cloudSyncedNames.has(n) ? '<span style="color:var(--accent);">☁</span>' : '<span style="color:var(--muted);">○</span>'}</span>` : ''}</button>
+              <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)}${charCloudBadge(n, chars[n])}</button>
               <button class="btn" data-charexport="${escapeAttr(n)}" style="padding:6px 10px;" title="Export Code">⬆</button>
               <button class="btn danger" data-chardelete="${escapeAttr(n)}" style="padding:6px 10px;" title="Delete">✕</button>
             </div>
