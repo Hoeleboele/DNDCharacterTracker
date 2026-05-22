@@ -1324,20 +1324,39 @@ Required structure:
     if (!tabs.some(t => t.id === activeTab)) activeTab = 'overview';
 
     $('#tabsCard').innerHTML = `
-      <div class="row" style="justify-content:space-between;">
-        <div class="tabs">
-          ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}">${t.label}</div>`).join('')}
+      <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
+        <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">Save</button>
+        <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
+        <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
+          ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}" style="white-space:nowrap;">${t.label}</div>`).join('')}
+          <div class="tab" id="btnMenuToggle" style="white-space:nowrap;">Main Menu</div>
         </div>
-        <div class="row" style="gap:8px;">
-          <button class="btn" id="btnSaveLocal">Save</button>
-          <button class="btn" id="btnMenuToggle">Main Menu</button>
-        </div>
+        <button id="tabScrollRight" class="tab" style="flex-shrink:0;">&#8250;</button>
       </div>
     `;
 
     $('#menuPanel').style.display = 'none';
 
+    const scroller = document.getElementById('tabsScroller');
+    const leftBtn  = document.getElementById('tabScrollLeft');
+    const rightBtn = document.getElementById('tabScrollRight');
+
+    function updateArrows(){
+      const canLeft  = scroller.scrollLeft > 1;
+      const canRight = scroller.scrollLeft < scroller.scrollWidth - scroller.clientWidth - 1;
+      leftBtn.style.visibility  = canLeft  ? 'visible' : 'hidden';
+      rightBtn.style.visibility = canRight ? 'visible' : 'hidden';
+    }
+    scroller.addEventListener('scroll', updateArrows);
+    // Wait for layout to be painted before checking overflow
+    requestAnimationFrame(() => requestAnimationFrame(updateArrows));
+    new ResizeObserver(updateArrows).observe(scroller);
+
+    leftBtn.onclick  = () => { scroller.scrollLeft -= 120; };
+    rightBtn.onclick = () => { scroller.scrollLeft += 120; };
+
     $('#tabsCard').querySelectorAll('.tab').forEach(el => {
+      if (el.id === 'btnMenuToggle' || el.id === 'tabScrollLeft' || el.id === 'tabScrollRight') return;
       el.onclick = () => { activeTab = el.dataset.tab; renderContent(); renderTabs(); };
     });
 

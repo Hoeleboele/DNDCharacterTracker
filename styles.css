@@ -86,6 +86,13 @@
       box-shadow:0 14px 30px rgba(0,0,0,.35);
       padding:12px;
     }
+    #tabsCard{
+      position:sticky; top:0; z-index:10;
+      background:rgba(11,15,20,.95);
+      backdrop-filter:blur(8px);
+      border-radius:0;
+      border-left:none; border-right:none; border-top:none;
+    }
 
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .col{ display:flex; flex-direction:column; gap:8px; }
@@ -106,7 +113,8 @@
       color:var(--muted);
     }
 
-    .tabs{ display:flex; gap:8px; flex-wrap:wrap; }
+    .tabs{ display:flex; gap:8px; flex-wrap:nowrap; overflow-x:auto; scroll-behavior:smooth; scrollbar-width:none; }
+    .tabs::-webkit-scrollbar{ display:none; }
     .tab{
       border:1px solid var(--line);
       background:var(--btn2);
