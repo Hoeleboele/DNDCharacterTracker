@@ -238,7 +238,8 @@ Required structure:
   let mpRefreshing = false;
   let mpViewingPlayer = null;
   let mpDetailTab = 'overview';
-  let fbUser = null;  // current Firebase authenticated user
+  let fbUser = null;           // current Firebase authenticated user
+  const cloudSyncedNames = new Set(); // names known to exist in cloud
 
   // --- Firebase auth state ---
   fbAuth.onAuthStateChanged(async (user) => {
@@ -256,12 +257,26 @@ Required structure:
     if (!bar) return;
     if (fbUser) {
       bar.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:12px 0 0;border-top:1px solid var(--line);margin-top:4px;">
-          ${fbUser.photoURL ? `<img src="${escapeAttr(fbUser.photoURL)}" style="width:28px;height:28px;border-radius:50%;" referrerpolicy="no-referrer">` : ''}
-          <span class="mini" style="color:var(--text);">${escapeHtml(fbUser.displayName || fbUser.email || 'Signed in')}</span>
-          <button class="btn" id="btnSignOut" style="padding:4px 10px;font-size:12px;">Sign out</button>
+        <div style="display:flex;flex-direction:column;gap:8px;padding:12px 0 0;border-top:1px solid var(--line);margin-top:4px;">
+          <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+            ${fbUser.photoURL ? `<img src="${escapeAttr(fbUser.photoURL)}" style="width:28px;height:28px;border-radius:50%;" referrerpolicy="no-referrer">` : ''}
+            <span class="mini" style="color:var(--text);">${escapeHtml(fbUser.displayName || fbUser.email || 'Signed in')}</span>
+            <button class="btn" id="btnSignOut" style="padding:4px 10px;font-size:12px;">Sign out</button>
+          </div>
+          <button class="btn landing-btn" id="btnSyncCloud" style="width:100%;">&#x2601; Save All to Cloud</button>
         </div>`;
       document.getElementById('btnSignOut').onclick = () => fbAuth.signOut();
+      document.getElementById('btnSyncCloud').onclick = async () => {
+        const btn = document.getElementById('btnSyncCloud');
+        btn.textContent = '☁ Syncing…';
+        btn.disabled = true;
+        try {
+          const chars = loadAllChars();
+          await Promise.all(Object.values(chars).map(c => saveCharToCloud(c, null)));
+          btn.textContent = '☁ Saved ✓';
+        } catch { btn.textContent = '☁ Failed'; }
+        setTimeout(() => { btn.textContent = '☁ Save All to Cloud'; btn.disabled = false; }, 2000);
+      };
     } else {
       bar.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:12px 0 0;border-top:1px solid var(--line);margin-top:4px;">
@@ -279,7 +294,7 @@ Required structure:
       const snap = await fbDb.collection('users').doc(fbUser.uid).collection('characters').get();
       if (snap.empty) return;
       const chars = loadAllChars();
-      snap.forEach(d => { if (d.data().state) chars[d.id] = d.data().state; });
+      snap.forEach(d => { if (d.data().state) { chars[d.id] = d.data().state; cloudSyncedNames.add(d.id); } });
       localStorage.setItem(CHARS_KEY, JSON.stringify(chars));
     } catch (e) { console.warn('Cloud pull failed:', e); }
   }
@@ -290,14 +305,17 @@ Required structure:
       const name = charState.character.name || 'Unnamed';
       const col = fbDb.collection('users').doc(fbUser.uid).collection('characters');
       await col.doc(name).set({ state: charState, updatedAt: new Date().toISOString() });
-      if (oldName && oldName !== name) await col.doc(oldName).delete();
+      cloudSyncedNames.add(name);
+      if (oldName && oldName !== name) { await col.doc(oldName).delete(); cloudSyncedNames.delete(oldName); }
     } catch (e) { console.warn('Cloud save failed:', e); }
   }
 
   async function deleteCharFromCloud(name) {
     if (!fbUser) return;
-    try { await fbDb.collection('users').doc(fbUser.uid).collection('characters').doc(name).delete(); }
-    catch (e) { console.warn('Cloud delete failed:', e); }
+    try {
+      await fbDb.collection('users').doc(fbUser.uid).collection('characters').doc(name).delete();
+      cloudSyncedNames.delete(name);
+    } catch (e) { console.warn('Cloud delete failed:', e); }
   }
 
   function showLanding(){
@@ -335,7 +353,7 @@ Required structure:
       ? names.map(n => `
           <div data-charblock="${escapeAttr(n)}">
             <div style="display:flex; gap:6px; align-items:center;">
-              <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)}${fbUser ? ' <span title="Synced to cloud" style="font-size:11px;opacity:.6;">☁</span>' : ''}</button>
+              <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)} ${fbUser ? `<span style="font-size:11px;" title="${cloudSyncedNames.has(n) ? 'Saved to cloud' : 'Not saved to cloud'}">${cloudSyncedNames.has(n) ? '<span style="color:var(--accent);">☁</span>' : '<span style="color:var(--muted);">○</span>'}</span>` : ''}</button>
               <button class="btn" data-charexport="${escapeAttr(n)}" style="padding:6px 10px;" title="Export Code">⬆</button>
               <button class="btn danger" data-chardelete="${escapeAttr(n)}" style="padding:6px 10px;" title="Delete">✕</button>
             </div>
@@ -1398,7 +1416,7 @@ Required structure:
     $('#tabsCard').innerHTML = `
       <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
         <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">Save</button>
-        ${fbUser ? '<button class="btn" id="btnSaveCloud" style="flex-shrink:0;">&#x2601; Cloud</button>' : ''}
+
         <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
         <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
           ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}" style="white-space:nowrap;">${t.label}</div>`).join('')}
@@ -1466,20 +1484,6 @@ Required structure:
       flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     };
 
-    if (fbUser) {
-      $('#btnSaveCloud').onclick = async () => {
-        const btn = $('#btnSaveCloud');
-        const orig = btn.textContent;
-        btn.textContent = '☁ Saving…';
-        btn.disabled = true;
-        try {
-          saveToLocalStorage();
-          await saveCharToCloud(state, null);
-          btn.textContent = '☁ Saved ✓';
-        } catch { btn.textContent = '☁ Failed'; }
-        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
-      };
-    }
   }
 
   function renderContent(){
