@@ -1266,7 +1266,7 @@ Required structure:
     const profBonus = toInt(c.combat.proficiency_bonus, 2);
     const wisMod = Math.floor((toInt(as.wis, 10) - 10) / 2);
     const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
-    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0);
+    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0) + toInt(c.combat.pp_bonus, 0);
 
     const hpMax = c.hp.max || 1;
     const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
@@ -1285,7 +1285,7 @@ Required structure:
           <div class="row" style="gap:8px;">
             <span class="pill">AC <b style="color:var(--text)">${c.combat.ac}</b></span>
             <span class="pill">Speed <b style="color:var(--text)">${c.combat.speed}</b></span>
-            <span class="pill">Init <b style="color:var(--text)">${signed(c.combat.initiative_mod)}</b></span>
+            <span class="pill">Init <b style="color:var(--text)">${signed(Math.floor((toInt(c.ability_scores?.dex,10)-10)/2) + toInt(c.combat.initiative_mod,0))}</b></span>
             <span class="pill">PP <b style="color:var(--text)">${passivePerception}</b></span>
           </div>
         </div>
@@ -1299,23 +1299,13 @@ Required structure:
             <div class="hpfill ${low ? 'low':''}" style="width:${pct}%;"></div>
           </div>
           <div class="row" style="margin-top:8px;">
-            <input type="number" id="hpDelta" min="0" step="1" value="1" style="max-width:110px;" />
-            <button class="btn danger" id="btnDamage">Damage</button>
-            <button class="btn good" id="btnHeal">Heal</button>
-            <button class="btn" id="btnTemp">Set Temp</button>
-
-          </div>
-          <div class="row" style="margin-top:8px;">
             ${(c.conditions || []).length ? `<div class="row" style="gap:6px;">${conditions}</div>` : `<div class="mini">No conditions set. Miracles do happen.</div>`}
           </div>
         </div>
       </div>
     `;
 
-    // Wire header buttons
-    $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
-    $('#btnHeal').onclick = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
-    $('#btnTemp').onclick = () => setTempHp(toInt($('#hpDelta').value, 0));
+    // Wire header buttons — none left here
   }
 
   function renderTabs(){
@@ -1380,8 +1370,12 @@ Required structure:
     const as = c.ability_scores || {};
     const profBonus = toInt(c.combat.proficiency_bonus, 2);
     const wisMod = Math.floor((toInt(as.wis, 10) - 10) / 2);
+    const dexMod  = Math.floor((toInt(as.dex, 10) - 10) / 2);
     const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
-    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0);
+    const ppBonus = toInt(c.combat.pp_bonus, 0);
+    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0) + ppBonus;
+    const initExtra = toInt(c.combat.initiative_mod, 0);
+    const initTotal = dexMod + initExtra;
 
     $('#contentCard').innerHTML = `
       <div class="grid2">
@@ -1389,20 +1383,23 @@ Required structure:
           <h2>Quick Stats</h2>
           <div class="grid2">
             ${numField('AC','combat.ac', c.combat.ac)}
-            ${numField('Speed','combat.speed', c.combat.speed)}
-            ${numField('Init Mod','combat.initiative_mod', c.combat.initiative_mod)}
             ${numField('Proficiency','combat.proficiency_bonus', c.combat.proficiency_bonus)}
+            ${numField('Speed','combat.speed', c.combat.speed)}
+            ${numField('Inspiration','inspiration', toInt(c.inspiration, 0))}
+            <label class="col" style="gap:6px;"><div class="mini">Initiative</div><span class="pill" style="font-size:1.1em; font-weight:700;">${initTotal >= 0 ? '+' : ''}${initTotal}</span><div class="mini muted">DEX mod (${dexMod >= 0 ? '+' : ''}${dexMod}) + bonus (${initExtra >= 0 ? '+' : ''}${initExtra})</div></label>
+            ${numField('Init Extra Bonus','combat.initiative_mod', initExtra)}
           </div>
-          <div class="row" style="margin-top:10px; align-items:center; gap:10px;">
-            <span class="mini">Passive Perception</span>
-            <span class="pill" style="font-size:15px; font-weight:700; padding:4px 14px;">${passivePerception}</span>
-            <span class="mini" style="color:var(--muted);">(recalculates from WIS &amp; Perception proficiency)</span>
+          <div class="grid2" style="margin-top:10px;">
+            <label class="col" style="gap:6px;"><div class="mini">Passive Perception</div><span class="pill" style="font-size:1.1em; font-weight:700;">${passivePerception}</span><div class="mini muted">10 + WIS mod (${wisMod >= 0 ? '+' : ''}${wisMod})${percProf ? ` + Prof (+${profBonus})` : ''} + bonus (${ppBonus >= 0 ? '+' : ''}${ppBonus})</div></label>
+            ${numField('PP Extra Bonus','combat.pp_bonus', ppBonus)}
           </div>
 
           <h2 style="margin-top:10px;">Conditions</h2>
-          <div class="mini">Add conditions like <span class="kbd">poisoned</span>, <span class="kbd">blinded</span>, <span class="kbd">concentrating</span>.</div>
           <div class="row" style="margin-top:8px;">
-            <input type="text" id="condInput" placeholder="Add a condition…" />
+            <select id="condInput">
+              <option value="">— Select condition —</option>
+              ${['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'].map(x => `<option value="${x}">${x}</option>`).join('')}
+            </select>
             <button class="btn" id="btnAddCond">Add</button>
           </div>
           <div class="row" style="margin-top:8px;">
@@ -1414,6 +1411,12 @@ Required structure:
     `;
 
     wireNumberFields('#contentCard');
+
+    // Re-render when init extra bonus changes so the computed pill updates
+    const initInp = $('#contentCard').querySelector('[data-num="combat.initiative_mod"]');
+    if (initInp) initInp.oninput = () => { c.combat.initiative_mod = toInt(initInp.value, 0); render(); };
+    const ppInp = $('#contentCard').querySelector('[data-num="combat.pp_bonus"]');
+    if (ppInp) ppInp.oninput = () => { c.combat.pp_bonus = toInt(ppInp.value, 0); render(); };
 
     $('#btnAddCond').onclick = () => {
       const v = ($('#condInput').value || '').trim();
@@ -1609,7 +1612,15 @@ Required structure:
             ${textField('Subclass','subclass', c.subclass || '')}
             ${textField('Race','race', c.race || '')}
             ${textField('Background','background', c.background || '')}
-            ${textField('ID','id', c.id || '')}
+          </div>
+
+          <div class="mini" style="margin-top:10px; font-weight:600;">Languages</div>
+          <div class="row" style="margin-top:6px;">
+            <input type="text" id="langInput" placeholder="Add a language…" style="flex:1;" />
+            <button class="btn" id="btnAddLang">Add</button>
+          </div>
+          <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;">
+            ${(c.languages||[]).length ? (c.languages||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-lang="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No languages added.</div>`}
           </div>
 
           <h2 style="margin-top:14px;">HP</h2>
@@ -1656,6 +1667,23 @@ Required structure:
       };
     }
 
+    $('#btnAddLang').onclick = () => {
+      const v = ($('#langInput').value || '').trim();
+      if (!v) return;
+      c.languages = c.languages || [];
+      if (!c.languages.includes(v)) c.languages.push(v);
+      $('#langInput').value = '';
+      render();
+    };
+    $('#langInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnAddLang').click(); });
+    $('#contentCard').querySelectorAll('[data-del-lang]').forEach(a => {
+      a.onclick = e => {
+        e.preventDefault();
+        c.languages.splice(toInt(a.dataset.delLang, -1), 1);
+        render();
+      };
+    });
+
     $('#btnToggleCaster').onclick = () => {
       if (c.spellcasting) {
         c.spellcasting = null;
@@ -1684,8 +1712,10 @@ Required structure:
     const abilKey = (s.ability || 'INT').toLowerCase();
     const abilScore = toInt(c.ability_scores?.[abilKey], 10);
     const abilMod = Math.floor((abilScore - 10) / 2);
-    const saveDC = 8 + profBonus + abilMod;
-    const atkBonus = profBonus + abilMod;
+    const dcBonus  = toInt(s.dc_bonus, 0);
+    const atkBonusExtra = toInt(s.atk_bonus, 0);
+    const saveDC   = 8 + profBonus + abilMod + dcBonus;
+    const atkBonus = profBonus + abilMod + atkBonusExtra;
 
     $('#contentCard').innerHTML = `
       <div class="grid2">
@@ -1693,9 +1723,10 @@ Required structure:
           <h2>Spellcasting</h2>
           <div class="grid3">
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
-            <label class="col" style="gap:6px;"><div class="mini">Save DC</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span></label>
-            <label class="col" style="gap:6px;"><div class="mini">Attack Bonus</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span></label>
-            ${numField('Max Prepared','spellcasting.max_prepared', s.max_prepared ?? 1, 1)}
+            <label class="col" style="gap:6px;"><div class="mini">Save DC</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
+            ${numField('DC Extra Bonus','spellcasting.dc_bonus', s.dc_bonus ?? 0)}
+            <label class="col" style="gap:6px;"><div class="mini">Attack Bonus</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
+            ${numField('Atk Extra Bonus','spellcasting.atk_bonus', s.atk_bonus ?? 0)}
           </div>
 
           <h2 style="margin-top:14px;">Spell Slots</h2>
@@ -1708,9 +1739,9 @@ Required structure:
         </div>
 
         <div class="col">
-          <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;">
             <h2>Prepared Spells</h2>
-            ${(() => { const cnt = (s.prepared_spells||[]).length; const mx = toInt(s.max_prepared,0); const over = mx > 0 && cnt > mx; return `<span style="font-size:1.1em; font-weight:700; color:${over ? 'var(--bad)' : 'var(--accent)'};">${cnt}${mx ? ' / ' + mx : ''}</span>`; })()}
+            ${(() => { const cnt = (s.prepared_spells||[]).length; const mx = toInt(s.max_prepared,1); const over = cnt > mx; return `<span style="font-size:1.1em; font-weight:700; color:${over ? 'var(--bad)' : 'var(--accent)'}">${cnt}</span><span style="color:var(--muted)"> / </span><input type="number" id="inlineMaxPrepared" value="${mx}" min="1" style="width:52px; font-size:1em; font-weight:700; text-align:center; padding:2px 4px;">`; })()}
           </div>
           <div class="mini">Track what you have ready today. (Yes, you can forget to update this. That’s the tradition.)</div>
           <div class="list" id="preparedList" style="margin-top:10px;"></div>
@@ -1726,14 +1757,18 @@ Required structure:
     wireNumberFields('#contentCard');
     wireSelectFields('#contentCard');
 
-    // max_prepared change must re-render to update the counter
-    const maxPrepInp = $('#contentCard').querySelector('[data-num="spellcasting.max_prepared"]');
+    // extra bonus fields and max_prepared must re-render to update the computed values
+    const maxPrepInp = document.getElementById('inlineMaxPrepared');
     if (maxPrepInp) maxPrepInp.oninput = () => {
       let v = toInt(maxPrepInp.value, 1);
       if (v < 1) { v = 1; maxPrepInp.value = 1; }
       s.max_prepared = v;
       render();
     };
+    const dcBonusInp = $('#contentCard').querySelector('[data-num="spellcasting.dc_bonus"]');
+    if (dcBonusInp) dcBonusInp.oninput = () => { s.dc_bonus = toInt(dcBonusInp.value, 0); render(); };
+    const atkBonusInp = $('#contentCard').querySelector('[data-num="spellcasting.atk_bonus"]');
+    if (atkBonusInp) atkBonusInp.oninput = () => { s.atk_bonus = toInt(atkBonusInp.value, 0); render(); };
 
     // Re-render when ability changes so DC/attack bonus update immediately
     const abilitySel = $('#contentCard').querySelector('[data-sel="spellcasting.ability"]');
@@ -2106,9 +2141,26 @@ Required structure:
   }
 
   function renderCombat(c){
+    const hpMax = c.hp.max || 1;
+    const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
+    const pct = Math.round((hpCur / hpMax) * 100);
+    const low = pct <= 33;
     const attacks = c.attacks || [];
     const actions = c.actions || [];
     $('#contentCard').innerHTML = `
+      <div class="card" style="margin-bottom:12px; padding:12px 16px;">
+        <div class="row" style="justify-content:space-between; margin-bottom:6px;">
+          <div><b>HP</b> <span class="muted">(temp: ${c.hp.temp || 0})</span></div>
+          <div class="muted">${hpCur} / ${hpMax} (${pct}%)</div>
+        </div>
+        <div class="hpbar" aria-label="HP bar"><div class="hpfill ${low ? 'low':''}" style="width:${pct}%;"></div></div>
+        <div class="row" style="margin-top:8px;">
+          <input type="number" id="hpDelta" min="0" step="1" value="1" style="max-width:110px;" />
+          <button class="btn danger" id="btnDamage">Damage</button>
+          <button class="btn good" id="btnHeal">Heal</button>
+          <button class="btn" id="btnTemp">Set Temp</button>
+        </div>
+      </div>
       <div class="grid2">
         <div class="col">
           <h2>Attacks / Actions</h2>
@@ -2126,6 +2178,10 @@ Required structure:
 
     renderAttacks();
     renderActions();
+
+    $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
+    $('#btnHeal').onclick   = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
+    $('#btnTemp').onclick   = () => setTempHp(toInt($('#hpDelta').value, 0));
 
     $('#btnAddAttack').onclick = () => {
       const equippedWeapons = ((c.inventory || {}).items || [])
