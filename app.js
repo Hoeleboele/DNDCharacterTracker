@@ -811,6 +811,7 @@ Required structure:
       out.character.spellcasting.cantrips = Array.isArray(out.character.spellcasting.cantrips) ? out.character.spellcasting.cantrips : [];
       out.character.spellcasting.prepared_spells = Array.isArray(out.character.spellcasting.prepared_spells) ? out.character.spellcasting.prepared_spells : [];
       out.character.spellcasting.known_spells = Array.isArray(out.character.spellcasting.known_spells) ? out.character.spellcasting.known_spells : [];
+      if (out.character.spellcasting.max_prepared == null || toInt(out.character.spellcasting.max_prepared,1) < 1) out.character.spellcasting.max_prepared = 1;
       // Coerce slot levels
       out.character.spellcasting.spell_slots = out.character.spellcasting.spell_slots.map(s => ({
         level: toInt(s.level, 1),
@@ -1340,8 +1341,8 @@ Required structure:
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
             ${numField('Save DC','spellcasting.save_dc', s.save_dc ?? 0)}
             ${numField('Attack Bonus','spellcasting.attack_bonus', s.attack_bonus ?? 0)}
+            ${numField('Max Prepared','spellcasting.max_prepared', s.max_prepared ?? 1, 1)}
           </div>
-          <div style="margin-top:10px;">${textAreaField('Notes','spellcasting.notes', s.notes || '')}</div>
 
           <h2 style="margin-top:14px;">Spell Slots</h2>
           <div class="list" id="slotsList" style="margin-top:10px;"></div>
@@ -1353,7 +1354,10 @@ Required structure:
         </div>
 
         <div class="col">
-          <h2>Prepared Spells</h2>
+          <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+            <h2>Prepared Spells</h2>
+            ${(() => { const cnt = (s.prepared_spells||[]).length; const mx = toInt(s.max_prepared,0); const over = mx > 0 && cnt > mx; return `<span style="font-size:1.1em; font-weight:700; color:${over ? 'var(--bad)' : 'var(--accent)'};">${cnt}${mx ? ' / ' + mx : ''}</span>`; })()}
+          </div>
           <div class="mini">Track what you have ready today. (Yes, you can forget to update this. That’s the tradition.)</div>
           <div class="list" id="preparedList" style="margin-top:10px;"></div>
           <button class="btn" id="btnAddPrepared">Add Prepared Spell</button>
@@ -1366,13 +1370,12 @@ Required structure:
     `;
 
     wireNumberFields('#contentCard');
-    wireTextAreaFields('#contentCard');
     wireSelectFields('#contentCard');
 
     renderSlots();
     renderSpellList('cantrips', '#cantripsList');
-    renderSpellList('prepared_spells', '#preparedList', true);
-    renderSpellList('known_spells', '#knownList', true);
+    renderSpellList('prepared_spells', '#preparedList', true, 'known_spells', 'Unprepare');
+    renderSpellList('known_spells', '#knownList', true, 'prepared_spells', 'Prepare');
 
     $('#btnAddSlot').onclick = () => {
       s.spell_slots = s.spell_slots || [];
@@ -1456,9 +1459,12 @@ Required structure:
       });
     }
 
-    function renderSpellList(field, containerSel, hasLevel){
+    function renderSpellList(field, containerSel, hasLevel, moveToField, moveLabel){
       const list = $(containerSel);
       const arr = s[field] || [];
+      const maxPrep = toInt(s.max_prepared, 1);
+      const prepCount = (s.prepared_spells || []).length;
+      const overMax = field === 'prepared_spells' && prepCount > maxPrep;
       list.innerHTML = arr.length ? arr.map((x,i)=>{
         const statsHtml = [
           x.casting_time ? `<span><b>Casting Time:</b> <span class="spell-val">${escapeHtml(x.casting_time)}</span></span>` : '',
@@ -1468,14 +1474,15 @@ Required structure:
         ].filter(Boolean).join('<span class="spell-dot"> · </span>');
         const hasStats = !!(x.casting_time || x.range_area || x.duration || x.components);
         return `
-          <div class="item" style="grid-template-columns:1fr;">
+          <div class="item" style="grid-template-columns:1fr;${overMax ? ' border-color:var(--bad);' : ''}">
             <div class="row" style="justify-content:space-between; align-items:flex-start;">
               <div class="row" style="gap:8px; align-items:center;">
-                <b>${escapeHtml(x.name || 'Spell')}</b>
+                <b style="${overMax ? 'color:var(--bad);' : ''}">${escapeHtml(x.name || 'Spell')}</b>
                 ${hasLevel ? `<span class="pill">lvl ${toInt(x.level,1)}</span>` : ''}
               </div>
               <div class="row" style="gap:6px;">
                 ${hasLevel ? `<button class="btn" data-spell-level="${field}:${i}">Level</button>` : ''}
+                ${moveToField ? `<button class="btn" data-spell-move="${field}:${i}:${moveToField}">${moveLabel}</button>` : ''}
                 <button class="btn" data-spell-expand="${field}:${i}">Details</button>
                 <button class="btn danger" data-spell-del="${field}:${i}">Delete</button>
               </div>
@@ -1555,6 +1562,15 @@ Required structure:
         const [f, idxStr] = btn.dataset.spellDel.split(':');
         const i = toInt(idxStr, -1);
         s[f].splice(i, 1);
+        render();
+      });
+
+      list.querySelectorAll('[data-spell-move]').forEach(btn => btn.onclick = () => {
+        const [f, idxStr, targetField] = btn.dataset.spellMove.split(':');
+        const i = toInt(idxStr, -1);
+        const sp = s[f].splice(i, 1)[0];
+        s[targetField] = s[targetField] || [];
+        s[targetField].push(sp);
         render();
       });
 
@@ -2228,11 +2244,11 @@ Required structure:
     `;
   }
 
-  function numField(label, path, value){
+  function numField(label, path, value, min){
     return `
       <label class="col" style="gap:6px;">
         <div class="mini">${escapeHtml(label)}</div>
-        <input type="number" data-num="${escapeHtml(path)}" value="${escapeAttr(String(value ?? 0))}" />
+        <input type="number" data-num="${escapeHtml(path)}" value="${escapeAttr(String(value ?? 0))}"${min != null ? ` min="${min}"` : ''} />
       </label>
     `;
   }
@@ -2272,7 +2288,9 @@ Required structure:
     root.querySelectorAll('[data-num]').forEach(inp => {
       inp.oninput = () => {
         const path = inp.dataset.num;
-        const v = toInt(inp.value, 0);
+        const minVal = inp.min !== '' ? toInt(inp.min, null) : null;
+        let v = toInt(inp.value, 0);
+        if (minVal != null && v < minVal) { v = minVal; inp.value = v; }
         setPath(state.character, path, v);
         state = normalize(state);
         renderHeader();
