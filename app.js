@@ -444,12 +444,11 @@ Required structure:
     const tabs = [
       { id:'overview', label:'Overview' },
       { id:'stats',    label:'Stats' },
-      { id:'classrace',label:'Class/Race' },
+      { id:'class_race',label:'Character' },
       { id:'combat',   label:'Combat' },
       { id:'inventory',label:'Inventory' },
       { id:'spells',   label:'Spells', hide: !ch.spellcasting },
-      { id:'quests',   label:'Quests' },
-      { id:'notes',    label:'Notes' },
+      { id:'camp',     label:'Camp' },
     ].filter(t => !t.hide);
 
     function mod(v){ const m=Math.floor((toInt(v,10)-10)/2); return (m>=0?'+':'')+m; }
@@ -825,6 +824,10 @@ Required structure:
     out.character.features = Array.isArray(out.character.features) ? out.character.features : [];
     out.character.attacks = Array.isArray(out.character.attacks) ? out.character.attacks : [];
     out.character.quests = Array.isArray(out.character.quests) ? out.character.quests : [];
+    if (out.character.hit_dice && typeof out.character.hit_dice === 'object') {
+      out.character.hit_dice.total = Math.max(1, toInt(out.character.hit_dice.total, out.character.level || 1));
+      out.character.hit_dice.used = clamp(toInt(out.character.hit_dice.used, 0), 0, out.character.hit_dice.total);
+    }
 
     if (!out.character.inventory) out.character.inventory = deepClone(base.character.inventory);
     if (!out.character.inventory.currency) out.character.inventory.currency = deepClone(base.character.inventory.currency);
@@ -1018,8 +1021,7 @@ Required structure:
             <button class="btn danger" id="btnDamage">Damage</button>
             <button class="btn good" id="btnHeal">Heal</button>
             <button class="btn" id="btnTemp">Set Temp</button>
-            <button class="btn" id="btnLongRest">Long Rest</button>
-            <button class="btn" id="btnShortRest">Short Rest</button>
+
           </div>
           <div class="row" style="margin-top:8px;">
             ${(c.conditions || []).length ? `<div class="row" style="gap:6px;">${conditions}</div>` : `<div class="mini">No conditions set. Miracles do happen.</div>`}
@@ -1032,8 +1034,6 @@ Required structure:
     $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
     $('#btnHeal').onclick = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
     $('#btnTemp').onclick = () => setTempHp(toInt($('#hpDelta').value, 0));
-    $('#btnLongRest').onclick = () => doRest('long');
-    $('#btnShortRest').onclick = () => doRest('short');
   }
 
   function renderTabs(){
@@ -1041,13 +1041,11 @@ Required structure:
     const tabs = [
       { id:'overview', label:'Overview' },
       { id:'stats', label:'Stats' },
-      { id:'class_race', label:'Class/Race' },
+      { id:'class_race', label:'Character' },
       { id:'spells', label:'Spells', hide: !isCaster },
       { id:'combat', label:'Combat' },
       { id:'inventory', label:'Inventory' },
-      { id:'quests', label:'Quests' },
-      { id:'notes', label:'Notes' },
-      { id:'edit', label:'Edit' },
+      { id:'camp', label:'Camp' },
     ].filter(t => !t.hide);
 
     // If current tab got hidden (e.g., caster -> non-caster), bounce to overview
@@ -1094,13 +1092,11 @@ Required structure:
     const c = state.character;
     if (activeTab === 'overview') return renderOverview(c);
     if (activeTab === 'stats') return renderStats(c);
-    if (activeTab === 'class_race') return renderClassRace(c);
+    if (activeTab === 'class_race') return renderCharacter(c);
     if (activeTab === 'spells') return renderSpells(c);
     if (activeTab === 'combat') return renderCombat(c);
     if (activeTab === 'inventory') return renderInventory(c);
-    if (activeTab === 'quests') return renderQuests(c);
-    if (activeTab === 'notes') return renderNotes(c);
-    if (activeTab === 'edit') return renderEdit(c);
+    if (activeTab === 'camp') return renderCamp(c);
   }
 
   function renderOverview(c){
@@ -1162,7 +1158,7 @@ Required structure:
 
   }
 
-  function renderClassRace(c){
+  function renderCharacter(c){
     $('#contentCard').innerHTML = `
       <div class="grid2">
         <div class="col">
@@ -1321,6 +1317,92 @@ Required structure:
         saveToLocalStorage();
       });
     }
+
+    // --- Identity & settings (formerly Edit tab) ---
+    const isCaster = !!c.spellcasting;
+    const editHtml = `
+      <hr style="margin:24px 0; border-color:var(--line);" />
+      <div class="grid2">
+        <div class="col">
+          <h2>Identity</h2>
+          ${textField('Name','name', c.name || '')}
+          <div class="grid2">
+            ${numField('Level','level', c.level)}
+            ${textField('Class','class', c.class || '')}
+            ${textField('Subclass','subclass', c.subclass || '')}
+            ${textField('Race','race', c.race || '')}
+            ${textField('Background','background', c.background || '')}
+            ${textField('ID','id', c.id || '')}
+          </div>
+
+          <h2 style="margin-top:14px;">HP</h2>
+          <div class="grid3">
+            ${numField('Current','hp.current', c.hp.current)}
+            ${numField('Max','hp.max', c.hp.max)}
+            ${numField('Temp','hp.temp', c.hp.temp || 0)}
+          </div>
+
+          <h2 style="margin-top:14px;">Spellcasting</h2>
+          <div class="mini">Enable for Wizards/Clerics/etc. Disable for martial characters.</div>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
+          </div>
+
+          <h2 style="margin-top:14px;">Raw JSON (advanced)</h2>
+          <div class="mini">Edit the full state directly. Useful for imports and corrections.</div>
+          <textarea id="rawJson" style="min-height:240px; font-family:var(--mono);"></textarea>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn" id="btnApplyRaw">Apply Raw JSON</button>
+          </div>
+        </div>
+
+        <div class="col">
+          <h2>Schema Expectations</h2>
+          <div class="mini">This app understands <span class="kbd">dnd-char-tracker@1</span> plus optional fields: <span class="kbd">resources</span>, <span class="kbd">features</span>, <span class="kbd">attacks</span>, <span class="kbd">inventory</span>, <span class="kbd">conditions</span>, <span class="kbd">notes</span>.</div>
+          <details style="margin-top:10px;">
+            <summary>What DMGPT should export</summary>
+            <pre class="mini" style="white-space:pre-wrap; font-family:var(--mono);">${escapeHtml(stripCodeFences(DMGPT_PROMPT))}</pre>
+          </details>
+
+          <h2 style="margin-top:14px;">Sanity Checks</h2>
+          <ul class="mini">
+            <li>HP current/max are numbers, not strings.</li>
+            <li>Spell slots are an array of objects: <span class="kbd">{level,max,used}</span>.</li>
+            <li>If your DMGPT adds extra text outside the JSON block, paste only the JSON (or the code block).</li>
+          </ul>
+        </div>
+      </div>
+    `;
+    $('#contentCard').innerHTML += editHtml;
+
+    $('#rawJson').value = JSON.stringify(state, null, 2);
+
+    wireTextFields('#contentCard');
+    wireNumberFields('#contentCard');
+
+    $('#btnToggleCaster').onclick = () => {
+      if (c.spellcasting) {
+        c.spellcasting = null;
+      } else {
+        c.spellcasting = {
+          ability: 'INT', save_dc: 0, attack_bonus: 0, notes: '',
+          spell_slots: [ { level: 1, max: 0, used: 0 } ],
+          cantrips: [], prepared_spells: [], known_spells: []
+        };
+      }
+      render();
+    };
+
+    $('#btnApplyRaw').onclick = () => {
+      try {
+        const parsed = parseJSONLoose($('#rawJson').value);
+        state = normalize(parsed);
+        render();
+        toast('Applied raw JSON.');
+      } catch (e) {
+        toast('Raw JSON parse failed: ' + (e?.message || String(e)));
+      }
+    };
   }
 
   function renderSpells(c){
@@ -1989,249 +2071,68 @@ Required structure:
     }
   }
 
-  function renderQuests(c){
-    const qs = c.quests || [];
+  function renderCamp(c){
+    const hd = c.hit_dice || { die: 'd8', total: c.level || 1, used: 0 };
+    const hdUsed = toInt(hd.used, 0);
+    const hdTotal = toInt(hd.total, 1);
+    const hdAvail = Math.max(0, hdTotal - hdUsed);
+
     $('#contentCard').innerHTML = `
-      <div class="row" style="justify-content:space-between; align-items:flex-end;">
-        <div class="col" style="gap:6px;">
-          <h2>Quests</h2>
-          <div class="mini">Track active/completed/failed, plus steps. This is where campaigns go to become spreadsheets.</div>
+      <h2>Camp</h2>
+
+      <div class="col" style="gap:10px; max-width:420px; margin-bottom:28px;">
+        <div class="mini">Take a rest to recover HP, spell slots, and resources.</div>
+        <div class="row" style="gap:12px;">
+          <button class="btn" id="btnLongRest" style="flex:1; padding:14px 0; font-size:1.05em;">&#x1F319; Long Rest</button>
+          <button class="btn" id="btnShortRest" style="flex:1; padding:14px 0; font-size:1.05em;">&#x26FA; Short Rest</button>
         </div>
-        <button class="btn" id="btnAddQuest">Add Quest</button>
+        <div class="mini muted">Short rest: recovers short-rest resources. Long rest: restores HP, spell slots, all resources, and all hit dice.</div>
       </div>
 
-      <div class="list" id="questsList" style="margin-top:10px;"></div>
+      <h2>Hit Dice</h2>
+      <div class="col" style="gap:10px; max-width:420px; margin-bottom:28px;">
+        <div class="grid2" style="align-items:end;">
+          ${selectField('Die Type','hit_dice.die', hd.die || 'd8', ['d4','d6','d8','d10','d12','d20'])}
+          ${numField('Total','hit_dice.total', hdTotal, 1)}
+        </div>
+        <div class="row" style="gap:8px; align-items:center;">
+          <span class="pill" style="font-size:1em;">${hdAvail} / ${hdTotal} available</span>
+          <button class="btn" id="btnSpendHd" ${hdAvail < 1 ? 'disabled' : ''}>Spend 1</button>
+        </div>
+      </div>
+
+      <h2>Camp Notes</h2>
+      <div style="margin-top:8px; max-width:660px;">
+        ${textAreaField('Camp Notes','camp_notes', c.camp_notes || '')}
+      </div>
     `;
 
-    renderQuestList();
-
-    $('#btnAddQuest').onclick = () => {
-      c.quests = c.quests || [];
-      c.quests.push({
-        title:'New Quest',
-        status:'active',
-        summary:'',
-        steps: [ { text:'First step', done:false } ],
-        rewards:'',
-        notes:''
-      });
+    $('#btnLongRest').onclick = () => { if (confirm('Take a Long Rest? This will restore HP, spell slots, and all resources.')) doRest('long'); };
+    $('#btnShortRest').onclick = () => doRest('short');
+    $('#btnSpendHd').onclick = () => {
+      c.hit_dice = c.hit_dice || { die: 'd8', total: c.level || 1, used: 0 };
+      c.hit_dice.used = Math.min(toInt(c.hit_dice.used, 0) + 1, toInt(c.hit_dice.total, 1));
       render();
     };
 
-    function renderQuestList(){
-      const list = $('#questsList');
-      list.innerHTML = qs.length ? qs.map((q,i)=>{
-        const steps = Array.isArray(q.steps) ? q.steps : [];
-        const doneCount = steps.filter(s=>s.done).length;
-        const pct = steps.length ? Math.round((doneCount/steps.length)*100) : 0;
-        return `
-          <div class="item" style="grid-template-columns: 1fr;">
-            <div>
-              <div class="row" style="justify-content:space-between; align-items:flex-start;">
-                <div class="row" style="gap:8px;">
-                  <b>${escapeHtml(q.title || 'Quest')}</b>
-                  <span class="pill">${escapeHtml(q.status || 'active')}</span>
-                  <span class="pill">${doneCount}/${steps.length} (${pct}%)</span>
-                </div>
-                <div class="row" style="gap:8px;">
-                  <button class="btn" data-q-edit="${i}">Edit</button>
-                  <button class="btn danger" data-q-del="${i}">Delete</button>
-                </div>
-              </div>
-              ${q.summary ? `<div class="mini" style="margin-top:6px;">${escapeHtml(q.summary)}</div>` : `<div class="mini" style="margin-top:6px;"><span class="muted">(no summary)</span></div>`}
-
-              <div style="margin-top:10px;" class="col" id="steps-${i}"></div>
-
-              <div class="row" style="margin-top:10px;">
-                <button class="btn" data-q-addstep="${i}">Add Step</button>
-                <button class="btn" data-q-status="${i}">Set Status</button>
-              </div>
-
-              ${(q.rewards || q.notes) ? `
-                <div style="margin-top:10px;" class="mini"><b>Rewards:</b> ${escapeHtml(q.rewards || '')}</div>
-                <div class="mini"><b>Notes:</b> ${escapeHtml(q.notes || '')}</div>
-              ` : ''}
-            </div>
-          </div>
-        `;
-      }).join('') : `<div class="mini">No quests yet.</div>`;
-
-      // render steps
-      qs.forEach((q,i)=>{
-        const container = document.getElementById(`steps-${i}`);
-        const steps = Array.isArray(q.steps) ? q.steps : [];
-        container.innerHTML = steps.length ? steps.map((s,si)=>`
-          <label class="pill" style="display:flex; align-items:center; gap:8px; cursor:pointer; justify-content:space-between;">
-            <span style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" data-step="${i}:${si}" ${s.done ? 'checked':''} />
-              ${escapeHtml(s.text || 'step')}
-            </span>
-            <a href="#" class="muted" data-step-del="${i}:${si}" title="remove">×</a>
-          </label>
-        `).join('') : `<div class="mini">No steps.</div>`;
-      });
-
-      list.querySelectorAll('[data-step]').forEach(cb => cb.onchange = () => {
-        const [qi, si] = cb.dataset.step.split(':').map(x=>toInt(x,-1));
-        if (qi<0||si<0) return;
-        qs[qi].steps[si].done = !!cb.checked;
-        render();
-      });
-
-      list.querySelectorAll('[data-step-del]').forEach(a => a.onclick = (e) => {
-        e.preventDefault();
-        const [qi, si] = a.dataset.stepDel.split(':').map(x=>toInt(x,-1));
-        if (qi<0||si<0) return;
-        qs[qi].steps.splice(si, 1);
-        render();
-      });
-
-      list.querySelectorAll('[data-q-addstep]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.qAddstep, -1);
-        const text = prompt('Step text:');
-        if (!text) return;
-        qs[i].steps = Array.isArray(qs[i].steps) ? qs[i].steps : [];
-        qs[i].steps.push({ text, done:false });
-        render();
-      });
-
-      list.querySelectorAll('[data-q-status]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.qStatus, -1);
-        const cur = qs[i].status || 'active';
-        const next = prompt('Status: active | completed | failed', cur);
-        if (!next) return;
-        const v = String(next).trim().toLowerCase();
-        if (!['active','completed','failed'].includes(v)) return toast('Invalid status.');
-        qs[i].status = v;
-        render();
-      });
-
-      list.querySelectorAll('[data-q-edit]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.qEdit, -1);
-        const q = qs[i];
-        const title = prompt('Quest title:', q.title ?? '');
-        if (title == null) return;
-        const summary = prompt('Summary:', q.summary ?? '');
-        if (summary == null) return;
-        const rewards = prompt('Rewards:', q.rewards ?? '');
-        if (rewards == null) return;
-        const notes = prompt('Notes:', q.notes ?? '');
-        if (notes == null) return;
-        q.title = title; q.summary = summary; q.rewards = rewards; q.notes = notes;
-        render();
-      });
-
-      list.querySelectorAll('[data-q-del]').forEach(btn => btn.onclick = () => {
-        const i = toInt(btn.dataset.qDel, -1);
-        qs.splice(i, 1);
-        render();
-      });
-    }
-  }
-
-  function renderNotes(c){
-    $('#contentCard').innerHTML = `
-      <h2>Notes</h2>
-      <div class="mini">General notes, reminders, ongoing effects, NPC names you will absolutely forget anyway.</div>
-      <div style="margin-top:10px;">${textAreaField('Notes','notes', c.notes || '')}</div>
-    `;
-    wireTextAreaFields('#contentCard');
-  }
-
-  function renderEdit(c){
-    const isCaster = !!c.spellcasting;
-
-    $('#contentCard').innerHTML = `
-      <div class="grid2">
-        <div class="col">
-          <h2>Identity</h2>
-          ${textField('Name','name', c.name || '')}
-          <div class="grid2">
-            ${numField('Level','level', c.level)}
-            ${textField('Class','class', c.class || '')}
-            ${textField('Subclass','subclass', c.subclass || '')}
-            ${textField('Race','race', c.race || '')}
-            ${textField('Background','background', c.background || '')}
-            ${textField('ID','id', c.id || '')}
-          </div>
-
-          <h2 style="margin-top:14px;">HP</h2>
-          <div class="grid3">
-            ${numField('Current','hp.current', c.hp.current)}
-            ${numField('Max','hp.max', c.hp.max)}
-            ${numField('Temp','hp.temp', c.hp.temp || 0)}
-          </div>
-
-          <h2 style="margin-top:14px;">Spellcasting</h2>
-          <div class="mini">Enable for Wizards/Clerics/etc. Disable for martial characters.</div>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
-          </div>
-
-          <h2 style="margin-top:14px;">Raw JSON (advanced)</h2>
-          <div class="mini">If you know what you're doing, you can edit the entire state here. If you don't, you will learn. The hard way.</div>
-          <textarea id="rawJson" style="min-height:240px; font-family:var(--mono);"></textarea>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn" id="btnApplyRaw">Apply Raw JSON</button>
-          </div>
-        </div>
-
-        <div class="col">
-          <h2>Schema Expectations</h2>
-          <div class="mini">This app understands <span class="kbd">dnd-char-tracker@1</span> plus optional fields: <span class="kbd">resources</span>, <span class="kbd">features</span>, <span class="kbd">attacks</span>, <span class="kbd">inventory</span>, <span class="kbd">quests</span>, <span class="kbd">conditions</span>, <span class="kbd">notes</span>.</div>
-          <details style="margin-top:10px;">
-            <summary>What DMGPT should export</summary>
-            <pre class="mini" style="white-space:pre-wrap; font-family:var(--mono);">${escapeHtml(stripCodeFences(DMGPT_PROMPT))}</pre>
-          </details>
-
-          <h2 style="margin-top:14px;">Sanity Checks</h2>
-          <div class="mini">If you import a character that looks wrong, check these first:</div>
-          <ul class="mini">
-            <li>HP current/max are numbers, not strings.</li>
-            <li>Spell slots are an array of objects: <span class="kbd">{level,max,used}</span>.</li>
-            <li>Quests use <span class="kbd">steps</span> as an array: <span class="kbd">{text,done}</span>.</li>
-            <li>If your DMGPT adds extra text outside the JSON block, paste only the JSON (or the code block).</li>
-          </ul>
-        </div>
-      </div>
-    `;
-
-    // Set raw JSON
-    $('#rawJson').value = JSON.stringify(state, null, 2);
-
-    wireTextFields('#contentCard');
     wireNumberFields('#contentCard');
+    wireSelectFields('#contentCard');
+    wireTextAreaFields('#contentCard');
 
-    $('#btnToggleCaster').onclick = () => {
-      if (c.spellcasting) {
-        c.spellcasting = null;
-      } else {
-        c.spellcasting = {
-          ability: 'INT',
-          save_dc: 0,
-          attack_bonus: 0,
-          notes: '',
-          spell_slots: [ { level: 1, max: 0, used: 0 } ],
-          cantrips: [],
-          prepared_spells: [],
-          known_spells: []
-        };
-      }
+    // hit_dice.total change must re-render to update the available counter
+    const hdTotalInp = document.querySelector('[data-num="hit_dice.total"]');
+    if (hdTotalInp) hdTotalInp.oninput = () => {
+      const minVal = hdTotalInp.min !== '' ? toInt(hdTotalInp.min, null) : null;
+      let v = toInt(hdTotalInp.value, 0);
+      if (minVal != null && v < minVal) { v = minVal; hdTotalInp.value = v; }
+      const c = state.character;
+      c.hit_dice = c.hit_dice || {};
+      c.hit_dice.total = v;
+      // clamp used so it never exceeds the new total
+      c.hit_dice.used = clamp(toInt(c.hit_dice.used, 0), 0, v);
+      state = normalize(state);
       render();
     };
-
-    $('#btnApplyRaw').onclick = () => {
-      try {
-        const parsed = parseJSONLoose($('#rawJson').value);
-        state = normalize(parsed);
-        render();
-        toast('Applied raw JSON.');
-      } catch (e) {
-        toast('Raw JSON parse failed: ' + (e?.message || String(e)));
-      }
-    };
-
-    // Keep raw editor updated if the user reopens tab later by re-rendering.
   }
 
   // --- Field templates & wiring ---
@@ -2331,9 +2232,17 @@ Required structure:
   function applyHpDelta(delta){
     const c = state.character;
     const max = toInt(c.hp.max, 1);
-    const cur = toInt(c.hp.current, 0);
-    const next = clamp(cur + delta, 0, max);
-    c.hp.current = next;
+    if (delta < 0) {
+      // Damage: absorb into temp HP first
+      const temp = toInt(c.hp.temp, 0);
+      const absorbed = Math.min(temp, -delta);
+      c.hp.temp = temp - absorbed;
+      const remaining = -delta - absorbed;
+      c.hp.current = clamp(toInt(c.hp.current, 0) - remaining, 0, max);
+    } else {
+      // Healing: never raises above max, never affects temp
+      c.hp.current = clamp(toInt(c.hp.current, 0) + delta, 0, max);
+    }
     render();
   }
 
@@ -2348,6 +2257,8 @@ Required structure:
     if (kind === 'long') {
       c.hp.current = toInt(c.hp.max, 1);
       c.hp.temp = 0;
+      // reset hit dice
+      if (c.hit_dice) c.hit_dice.used = 0;
       // reset spell slots
       if (c.spellcasting?.spell_slots) {
         c.spellcasting.spell_slots.forEach(s => { s.used = 0; });
