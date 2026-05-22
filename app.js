@@ -611,7 +611,12 @@ Required structure:
   }
 
   function returnToMenu(){
-    if (gameMode !== 'host') saveToLocalStorage(); // save character before leaving (not for host)
+    if (gameMode !== 'host') {
+      saveToLocalStorage(); // save locally before leaving
+      if (gameMode === 'solo' || gameMode === 'player') {
+        saveCharToCloud(state, null); // fire-and-forget cloud sync
+      }
+    }
     stopAutosave();
     if (mpPeer) { try { mpPeer.destroy(); } catch(_){} mpPeer = null; }
     mpHostConn = null;
