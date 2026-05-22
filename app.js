@@ -172,6 +172,301 @@ Required structure:
   let activeTab = 'overview';
   let menuOpen = false;
 
+  // ── Multiplayer ────────────────────────────────────────────────────────────
+  let gameMode = null;       // null | 'solo' | 'host' | 'player'
+  let mpPeer = null;
+  let mpHostConn = null;     // player → host connection
+  let mpPlayerConns = {};    // host's map: peerId → { conn, state }
+  let mpRoomCode = '';
+  let mpExpandedPlayer = null;
+  let mpRefreshing = false;
+
+  function showLanding(){
+    document.getElementById('landingOverlay').style.display = 'flex';
+    document.querySelector('.app').style.display = 'none';
+    document.getElementById('hostView').style.display = 'none';
+
+    document.getElementById('btnSolo').onclick = startSolo;
+    document.getElementById('btnHost').onclick = startHost;
+    document.getElementById('btnJoin').onclick = () => {
+      document.getElementById('landingJoinForm').style.display = 'block';
+    };
+    document.getElementById('btnJoinConfirm').onclick = () => {
+      const code = (document.getElementById('mpCodeInput').value || '').trim().toUpperCase();
+      if (!code) { setLandingStatus('Enter a room code.'); return; }
+      joinGame(code);
+    };
+    document.getElementById('mpCodeInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('btnJoinConfirm').click();
+    });
+  }
+
+  function setLandingStatus(msg){ document.getElementById('landingStatus').textContent = msg; }
+
+  function startSolo(){
+    gameMode = 'solo';
+    document.getElementById('landingOverlay').style.display = 'none';
+    document.querySelector('.app').style.display = '';
+    render();
+  }
+
+  function startHost(){
+    setLandingStatus('Starting…');
+    gameMode = 'host';
+    mpPlayerConns = {};
+    mpExpandedPlayer = null;
+
+    function tryHost(code){
+      mpRoomCode = code;
+      if (mpPeer) { try { mpPeer.destroy(); } catch(_){} }
+      mpPeer = new Peer(code);
+      mpPeer.on('open', () => {
+        mpRoomCode = mpPeer.id.toUpperCase();
+        document.getElementById('landingOverlay').style.display = 'none';
+        document.querySelector('.app').style.display = 'none';
+        document.getElementById('hostView').style.display = 'block';
+        renderHostView();
+      });
+      mpPeer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          tryHost(genCode());
+        } else {
+          setLandingStatus('Error: ' + (err.message || err.type));
+          gameMode = null;
+        }
+      });
+      mpPeer.on('connection', (conn) => {
+        mpPlayerConns[conn.peer] = { conn, state: null };
+        conn.on('data', (data) => {
+          if (data.type === 'sync') {
+            mpPlayerConns[conn.peer].state = data.state;
+            mpRefreshing = false;
+            renderHostView();
+          }
+        });
+        conn.on('close', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
+        conn.on('error', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
+        renderHostView();
+      });
+    }
+    tryHost(genCode());
+  }
+
+  function joinGame(code){
+    setLandingStatus('Connecting…');
+    gameMode = 'player';
+    mpRoomCode = code;
+    if (mpPeer) { try { mpPeer.destroy(); } catch(_){} }
+    mpPeer = new Peer();
+    mpPeer.on('open', () => {
+      mpHostConn = mpPeer.connect(mpRoomCode);
+      mpHostConn.on('open', () => {
+        document.getElementById('landingOverlay').style.display = 'none';
+        document.querySelector('.app').style.display = '';
+        syncToHost();
+        render();
+      });
+      mpHostConn.on('data', (data) => {
+        if (data.type === 'request-sync') syncToHost();
+      });
+      mpHostConn.on('error', () => {
+        setLandingStatus('Could not connect. Check the code and try again.');
+        gameMode = null;
+      });
+    });
+    mpPeer.on('error', (err) => {
+      setLandingStatus('Network error: ' + (err.message || err.type));
+      gameMode = null;
+    });
+    setTimeout(() => {
+      if (gameMode === 'player' && (!mpHostConn || !mpHostConn.open)) {
+        setLandingStatus('Connection timed out. Check the code and try again.');
+        gameMode = null;
+      }
+    }, 10000);
+  }
+
+  function syncToHost(){
+    if (gameMode === 'player' && mpHostConn && mpHostConn.open) {
+      mpHostConn.send({ type: 'sync', state });
+    }
+  }
+
+  function returnToMenu(){
+    if (mpPeer) { try { mpPeer.destroy(); } catch(_){} mpPeer = null; }
+    mpHostConn = null;
+    mpPlayerConns = {};
+    mpExpandedPlayer = null;
+    mpRoomCode = '';
+    gameMode = null;
+    document.getElementById('hostView').style.display = 'none';
+    document.querySelector('.app').style.display = 'none';
+    showLanding();
+  }
+
+  function genCode(){
+    return Math.random().toString(36).substr(2, 6).toUpperCase();
+  }
+
+  function renderHostView(){
+    const players = Object.entries(mpPlayerConns);
+    const inner = document.getElementById('hostViewInner');
+    if (!inner) return;
+
+    const playersHtml = players.length === 0
+      ? `<div class="card" style="text-align:center; padding:48px; max-width:500px; margin:0 auto;">
+           <div style="font-size:48px; margin-bottom:16px;">⏳</div>
+           <h2>Waiting for players…</h2>
+           <div class="mini">Share the room code with your players</div>
+         </div>`
+      : `<div class="host-grid">${players.map(([pid, pd]) => renderPlayerCard(pid, pd)).join('')}</div>`;
+
+    inner.innerHTML = `
+      <div class="host-header" style="max-width:1400px; margin:0 auto;">
+        <div>
+          <div style="font-size:13px; color:var(--muted); letter-spacing:.5px; margin-bottom:2px;">ROOM CODE</div>
+          <div class="room-code">${escapeHtml(mpRoomCode)}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span class="pill">${players.length} player${players.length !== 1 ? 's' : ''} connected</span>
+          ${mpRefreshing
+            ? `<span class="mini" style="color:var(--warn);">⏳ Retrieving data…</span>`
+            : `<button class="btn" id="btnHostRefresh">↺ Refresh</button>`}
+          <button class="btn" id="btnHostMenu">Main Menu</button>
+        </div>
+      </div>
+      ${playersHtml}
+    `;
+
+    inner.querySelectorAll('[data-expand]').forEach(btn => {
+      btn.onclick = () => {
+        const pid = btn.dataset.expand;
+        mpExpandedPlayer = mpExpandedPlayer === pid ? null : pid;
+        renderHostView();
+      };
+    });
+
+    const refreshBtn = inner.querySelector('#btnHostRefresh');
+    if (refreshBtn) refreshBtn.onclick = () => {
+      mpRefreshing = true;
+      renderHostView();
+      Object.values(mpPlayerConns).forEach(pd => {
+        if (pd.conn && pd.conn.open) pd.conn.send({ type: 'request-sync' });
+      });
+      setTimeout(() => {
+        mpRefreshing = false;
+        renderHostView();
+      }, 3000);
+    };
+
+    const menuBtn = inner.querySelector('#btnHostMenu');
+    if (menuBtn) menuBtn.onclick = () => returnToMenu();
+  }
+
+  function renderPlayerCard(pid, pd){
+    const ch = pd.state ? pd.state.character : null;
+    const isExpanded = mpExpandedPlayer === pid;
+
+    if (!ch) return `
+      <div class="player-card">
+        <div class="player-card-header">
+          <div class="mini">Player connecting…</div>
+        </div>
+      </div>`;
+
+    const hp = ch.hp || {};
+    const hpCur = toInt(hp.current, 0);
+    const hpMax = Math.max(toInt(hp.max, 1), 1);
+    const hpPct = clamp(Math.round(hpCur / hpMax * 100), 0, 100);
+    const hpColor = hpPct > 50 ? 'var(--good)' : hpPct > 25 ? 'var(--warn)' : 'var(--bad)';
+
+    const meta = [ch.race, ch.background, `Level ${ch.level || 1}`, ch.class_name].filter(Boolean).join(' · ');
+    const conditions = (ch.conditions || []);
+
+    return `
+      <div class="player-card">
+        <div class="player-card-header">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
+            <div>
+              <b style="font-size:18px;">${escapeHtml(ch.name || 'Unnamed')}</b>
+              <div class="mini" style="margin-top:2px;">${escapeHtml(meta)}</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <div style="font-size:22px; font-weight:700; color:${hpColor};">${hpCur} / ${hpMax}</div>
+              <div class="mini">HP${hp.temp ? ` (+${hp.temp} temp)` : ''}</div>
+            </div>
+          </div>
+          <div style="margin-top:10px; height:8px; border-radius:4px; background:var(--line); overflow:hidden;">
+            <div style="height:100%; width:${hpPct}%; background:${hpColor}; border-radius:4px;"></div>
+          </div>
+          ${conditions.length ? `
+            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+              ${conditions.map(c => `<span class="pill" style="background:rgba(255,107,107,.15); color:var(--bad);">${escapeHtml(c)}</span>`).join('')}
+            </div>` : ''}
+        </div>
+        ${isExpanded ? `<div class="player-card-details">${renderCharacterDetails(ch)}</div>` : ''}
+        <div class="player-card-footer">
+          <button class="btn" data-expand="${pid}">${isExpanded ? 'Collapse' : 'View Details'}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderCharacterDetails(ch){
+    const as = ch.ability_scores || {};
+    const combat = ch.combat || {};
+    const profBonus = combat.proficiency_bonus || 2;
+    function mod(v){ const m = Math.floor((toInt(v,10)-10)/2); return (m>=0?'+':'')+m; }
+
+    const abilityHtml = `
+      <h3 style="margin:0 0 8px;">Ability Scores</h3>
+      <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:6px; text-align:center; margin-bottom:14px;">
+        ${['str','dex','con','int','wis','cha'].map(s => `
+          <div style="background:var(--btn); border-radius:8px; padding:6px 4px;">
+            <div style="font-size:10px; color:var(--muted); letter-spacing:.5px;">${s.toUpperCase()}</div>
+            <div style="font-size:16px; font-weight:700;">${mod(as[s])}</div>
+            <div style="font-size:11px; color:var(--muted);">${toInt(as[s],10)}</div>
+          </div>`).join('')}
+      </div>`;
+
+    const combatHtml = `
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+        <span class="pill">AC ${combat.ac ?? 10}</span>
+        <span class="pill">Speed ${combat.speed ?? 30}</span>
+        <span class="pill">Prof +${profBonus}</span>
+      </div>`;
+
+    const resources = (ch.resources || []);
+    const resourcesHtml = resources.length ? `
+      <h3 style="margin:0 0 8px;">Resources</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+        ${resources.map(r => `<span class="pill">${escapeHtml(r.name)}: ${toInt(r.used,0)} / ${toInt(r.max,0)}</span>`).join('')}
+      </div>` : '';
+
+    const features = (ch.features || []).filter(f => f.uses_max != null);
+    const featuresHtml = features.length ? `
+      <h3 style="margin:0 0 8px;">Features</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+        ${features.map(f => `<span class="pill">${escapeHtml(f.name)}: ${toInt(f.uses_used,0)} / ${toInt(f.uses_max,0)}</span>`).join('')}
+      </div>` : '';
+
+    const spells = ch.spellcasting;
+    const slotsHtml = spells && (spells.spell_slots || []).length ? `
+      <h3 style="margin:0 0 8px;">Spell Slots</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+        ${spells.spell_slots.map(ss => `<span class="pill">L${ss.level}: ${toInt(ss.used,0)} / ${toInt(ss.max,0)}</span>`).join('')}
+      </div>` : '';
+
+    const attacks = (ch.attacks || []);
+    const attacksHtml = attacks.length ? `
+      <h3 style="margin:0 0 8px;">Attacks</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+        ${attacks.map(a => `<span class="pill">${escapeHtml(a.name || 'Attack')}${a.to_hit != null ? ' ' + signed(toInt(a.to_hit,0)) : ''}</span>`).join('')}
+      </div>` : '';
+
+    return abilityHtml + combatHtml + resourcesHtml + featuresHtml + slotsHtml + attacksHtml;
+  }
+  // ── End Multiplayer ────────────────────────────────────────────────────────
+
   // --- Helpers ---
   const $ = (sel) => document.querySelector(sel);
 
@@ -393,6 +688,7 @@ Required structure:
     renderHeader();
     renderTabs();
     renderContent();
+    syncToHost();
   }
 
   function renderHeader(){
@@ -1780,6 +2076,8 @@ Required structure:
   // --- Sidebar actions ---
   $('#btnNew').onclick = () => { state = newBlank(); activeTab='overview'; render(); };
 
+  $('#btnMainMenu').onclick = () => returnToMenu();
+
   $('#btnLoad').onclick = () => {
     const txt = $('#importText').value;
     if (!txt.trim()) return toast('Paste JSON first.');
@@ -1847,6 +2145,6 @@ Required structure:
 
   // --- Boot ---
   state = normalize(state);
-  render();
+  showLanding();
 
 })();

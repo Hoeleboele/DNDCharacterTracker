@@ -7,7 +7,33 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app">
+
+  <!-- Landing screen -->
+  <div id="landingOverlay">
+    <div class="landing-card">
+      <div class="landing-title">⚔️ DnD Character Tracker</div>
+      <div class="landing-sub">Choose how you want to play</div>
+      <div class="landing-btns">
+        <button class="btn landing-btn" id="btnSolo">Play Solo</button>
+        <button class="btn landing-btn" id="btnHost">Host a Game</button>
+        <button class="btn landing-btn" id="btnJoin">Join a Game</button>
+      </div>
+      <div id="landingJoinForm" style="display:none; margin-top:16px;">
+        <input type="text" id="mpCodeInput" placeholder="Enter room code" maxlength="8"
+          style="text-transform:uppercase; letter-spacing:3px; font-size:20px; text-align:center; width:100%; padding:10px;" />
+        <button class="btn landing-btn" id="btnJoinConfirm" style="margin-top:8px;">Connect</button>
+      </div>
+      <div id="landingStatus" class="mini" style="margin-top:12px; min-height:18px;"></div>
+    </div>
+  </div>
+
+  <!-- Host DM view -->
+  <div id="hostView" style="display:none;">
+    <div id="hostViewInner"></div>
+  </div>
+
+  <!-- Normal app -->
+  <div class="app" style="display:none;">
     <main class="main">
       <div class="card" id="headerCard"></div>
       <div class="card" id="tabsCard"></div>
@@ -18,6 +44,7 @@
             <button class="btn" id="btnNew">New Character</button>
             <button class="btn" id="btnDownload">Download JSON</button>
             <button class="btn danger" id="btnWipe">Wipe Local Save</button>
+            <button class="btn" id="btnMainMenu" style="margin-top:8px;">Return to Main Menu</button>
           </div>
           <div class="col">
             <h2>Import JSON</h2>
@@ -40,6 +67,8 @@
       <div class="card" id="contentCard"></div>
     </main>
   </div>
-<script src="app.js"></script>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
