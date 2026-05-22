@@ -1906,9 +1906,52 @@ Required structure:
     renderActions();
 
     $('#btnAddAttack').onclick = () => {
-      c.attacks = c.attacks || [];
-      c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
-      render();
+      const equippedWeapons = ((c.inventory || {}).items || [])
+        .filter(it => it.type === 'weapon' && it.equipped);
+
+      if (equippedWeapons.length === 0) {
+        // No equipped weapons — just add a blank attack
+        c.attacks = c.attacks || [];
+        c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
+        render();
+        return;
+      }
+
+      // Build a small inline picker above the list
+      const existingPicker = document.getElementById('weaponPicker');
+      if (existingPicker) { existingPicker.remove(); return; }
+
+      const picker = document.createElement('div');
+      picker.id = 'weaponPicker';
+      picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
+      picker.innerHTML = `
+        <div class="mini" style="font-weight:600;">Add from equipped weapon:</div>
+        ${equippedWeapons.map((w,idx) => `
+          <button class="btn" data-pick="${idx}" style="text-align:left;">
+            ${escapeHtml(w.name)}${w.notes ? ` <span class="muted" style="font-size:0.85em;">(${escapeHtml(w.notes)})</span>` : ''}
+          </button>
+        `).join('')}
+        <button class="btn" id="btnPickManual">+ Manual entry</button>
+        <button class="btn danger" id="btnPickCancel">Cancel</button>
+      `;
+      $('#btnAddAttack').insertAdjacentElement('afterend', picker);
+
+      picker.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = () => {
+        const w = equippedWeapons[toInt(btn.dataset.pick, 0)];
+        c.attacks = c.attacks || [];
+        c.attacks.push({ name: w.name, to_hit: 0, damage: w.notes || '', notes: '' });
+        picker.remove();
+        render();
+      });
+
+      document.getElementById('btnPickManual').onclick = () => {
+        c.attacks = c.attacks || [];
+        c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
+        picker.remove();
+        render();
+      };
+
+      document.getElementById('btnPickCancel').onclick = () => picker.remove();
     };
 
     $('#btnAddAction').onclick = () => {
@@ -1932,6 +1975,7 @@ Required structure:
           <div class="col" style="min-width:160px;">
             <div class="row" style="justify-content:flex-end;">
               <button class="btn" data-atk-edit="${i}">Edit</button>
+              <button class="btn" data-atk-tohit="${i}">To Hit</button>
               <button class="btn danger" data-atk-del="${i}">Delete</button>
             </div>
           </div>
@@ -1943,17 +1987,23 @@ Required structure:
         const atk = c.attacks[i];
         const name = prompt('Name:', atk.name ?? '');
         if (name == null) return;
-        const toHit = prompt('To-hit bonus (blank for none):', atk.to_hit ?? '');
-        if (toHit == null) return;
         const dmg = prompt('Damage text:', atk.damage ?? '');
         if (dmg == null) return;
         const notes = prompt('Notes:', atk.notes ?? '');
         if (notes == null) return;
         atk.name = name;
-        const th = String(toHit).trim();
-        atk.to_hit = th ? toInt(th, 0) : null;
         atk.damage = dmg;
         atk.notes = notes;
+        render();
+      });
+
+      list.querySelectorAll('[data-atk-tohit]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.atkTohit, -1);
+        const atk = c.attacks[i];
+        const toHit = prompt('To-hit bonus (blank for none):', atk.to_hit ?? '');
+        if (toHit == null) return;
+        const th = String(toHit).trim();
+        atk.to_hit = th !== '' ? toInt(th, 0) : null;
         render();
       });
 
