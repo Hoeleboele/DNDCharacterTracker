@@ -1783,6 +1783,15 @@ Required structure:
             ${(c.languages||[]).length ? (c.languages||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-lang="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No languages added.</div>`}
           </div>
 
+          <div class="mini" style="margin-top:10px; font-weight:600;">Proficiencies</div>
+          <div class="row" style="margin-top:6px;">
+            <input type="text" id="profInput" placeholder="Add a proficiency…" style="flex:1;" />
+            <button class="btn" id="btnAddProf">Add</button>
+          </div>
+          <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;">
+            ${(c.proficiencies||[]).length ? (c.proficiencies||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-prof="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No proficiencies added.</div>`}
+          </div>
+
           <h2 style="margin-top:14px;">HP</h2>
           <div class="grid3">
             ${numField('Max','hp.max', c.hp.max)}
@@ -1840,6 +1849,23 @@ Required structure:
       a.onclick = e => {
         e.preventDefault();
         c.languages.splice(toInt(a.dataset.delLang, -1), 1);
+        render();
+      };
+    });
+
+    $('#btnAddProf').onclick = () => {
+      const v = ($('#profInput').value || '').trim();
+      if (!v) return;
+      c.proficiencies = c.proficiencies || [];
+      if (!c.proficiencies.includes(v)) c.proficiencies.push(v);
+      $('#profInput').value = '';
+      render();
+    };
+    $('#profInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnAddProf').click(); });
+    $('#contentCard').querySelectorAll('[data-del-prof]').forEach(a => {
+      a.onclick = e => {
+        e.preventDefault();
+        c.proficiencies.splice(toInt(a.dataset.delProf, -1), 1);
         render();
       };
     });
@@ -2344,13 +2370,17 @@ Required structure:
     $('#btnTemp').onclick   = () => setTempHp(toInt($('#hpDelta').value, 0));
 
     $('#btnAddAttack').onclick = () => {
+      const strMod = Math.floor((toInt(c.ability_scores?.str, 10) - 10) / 2);
+      const profBonus = toInt(c.combat?.proficiency_bonus, 2);
+      const defaultToHit = strMod + profBonus;
+
       const equippedWeapons = ((c.inventory || {}).items || [])
         .filter(it => it.type === 'weapon' && it.equipped);
 
       if (equippedWeapons.length === 0) {
         // No equipped weapons — just add a blank attack
         c.attacks = c.attacks || [];
-        c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
+        c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
         render();
         return;
       }
@@ -2377,14 +2407,14 @@ Required structure:
       picker.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = () => {
         const w = equippedWeapons[toInt(btn.dataset.pick, 0)];
         c.attacks = c.attacks || [];
-        c.attacks.push({ name: w.name, to_hit: 0, damage: w.notes || '', notes: '' });
+        c.attacks.push({ name: w.name, to_hit: defaultToHit, damage: w.notes || '', notes: '' });
         picker.remove();
         render();
       });
 
       document.getElementById('btnPickManual').onclick = () => {
         c.attacks = c.attacks || [];
-        c.attacks.push({ name:'New Attack', to_hit: 0, damage:'', notes:'' });
+        c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
         picker.remove();
         render();
       };
