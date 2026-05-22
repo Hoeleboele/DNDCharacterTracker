@@ -43,7 +43,6 @@
       chars[name] = charState;
       currentSaveName = name;
       localStorage.setItem(CHARS_KEY, JSON.stringify(chars));
-      saveCharToCloud(charState, oldName); // fire-and-forget cloud sync
       return true;
     } catch { return false; }
   }
@@ -257,7 +256,7 @@ Required structure:
     if (!bar) return;
     if (fbUser) {
       bar.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:8px 0 12px;border-bottom:1px solid var(--line);margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:12px 0 0;border-top:1px solid var(--line);margin-top:4px;">
           ${fbUser.photoURL ? `<img src="${escapeAttr(fbUser.photoURL)}" style="width:28px;height:28px;border-radius:50%;" referrerpolicy="no-referrer">` : ''}
           <span class="mini" style="color:var(--text);">${escapeHtml(fbUser.displayName || fbUser.email || 'Signed in')}</span>
           <button class="btn" id="btnSignOut" style="padding:4px 10px;font-size:12px;">Sign out</button>
@@ -265,7 +264,7 @@ Required structure:
       document.getElementById('btnSignOut').onclick = () => fbAuth.signOut();
     } else {
       bar.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:8px 0 12px;border-bottom:1px solid var(--line);margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;padding:12px 0 0;border-top:1px solid var(--line);margin-top:4px;">
           <button class="btn" id="btnSignIn" style="padding:8px 16px;">Sign in with Google</button>
           <span class="mini" style="color:var(--muted);">to sync characters across devices</span>
         </div>`;
@@ -1399,6 +1398,7 @@ Required structure:
     $('#tabsCard').innerHTML = `
       <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
         <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">Save</button>
+        ${fbUser ? '<button class="btn" id="btnSaveCloud" style="flex-shrink:0;">&#x2601; Cloud</button>' : ''}
         <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
         <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
           ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}" style="white-space:nowrap;">${t.label}</div>`).join('')}
@@ -1465,6 +1465,21 @@ Required structure:
       const ok = saveToLocalStorage();
       flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     };
+
+    if (fbUser) {
+      $('#btnSaveCloud').onclick = async () => {
+        const btn = $('#btnSaveCloud');
+        const orig = btn.textContent;
+        btn.textContent = '☁ Saving…';
+        btn.disabled = true;
+        try {
+          saveToLocalStorage();
+          await saveCharToCloud(state, null);
+          btn.textContent = '☁ Saved ✓';
+        } catch { btn.textContent = '☁ Failed'; }
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+      };
+    }
   }
 
   function renderContent(){
