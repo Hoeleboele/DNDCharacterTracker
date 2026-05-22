@@ -1352,8 +1352,28 @@ Required structure:
     requestAnimationFrame(() => requestAnimationFrame(updateArrows));
     new ResizeObserver(updateArrows).observe(scroller);
 
-    leftBtn.onclick  = () => { scroller.scrollLeft -= 120; };
-    rightBtn.onclick = () => { scroller.scrollLeft += 120; };
+    leftBtn.onclick  = () => {
+      const scrollerRect = scroller.getBoundingClientRect();
+      const tabs = [...scroller.querySelectorAll('.tab')];
+      // Find the last tab that is partially or fully off the left edge
+      const target = [...tabs].reverse().find(t => t.getBoundingClientRect().left < scrollerRect.left);
+      if (target) {
+        // Scroll so this tab's right edge aligns with the scroller's right edge
+        const targetRect = target.getBoundingClientRect();
+        scroller.scrollLeft += targetRect.right - scrollerRect.right;
+      }
+    };
+    rightBtn.onclick = () => {
+      const scrollerRect = scroller.getBoundingClientRect();
+      const tabs = [...scroller.querySelectorAll('.tab')];
+      // Find the first tab that is partially or fully off the right edge
+      const target = tabs.find(t => t.getBoundingClientRect().right > scrollerRect.right);
+      if (target) {
+        // Scroll so this tab's left edge aligns with the scroller's left edge
+        const targetRect = target.getBoundingClientRect();
+        scroller.scrollLeft += targetRect.left - scrollerRect.left;
+      }
+    };
 
     $('#tabsCard').querySelectorAll('.tab').forEach(el => {
       if (el.id === 'btnMenuToggle' || el.id === 'tabScrollLeft' || el.id === 'tabScrollRight') return;
