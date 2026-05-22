@@ -312,6 +312,9 @@ Required structure:
       await col.doc(name).set({ state: charState, updatedAt: new Date().toISOString() });
       cloudSyncedData.set(name, JSON.stringify(charState));
       if (oldName && oldName !== name) { await col.doc(oldName).delete(); cloudSyncedData.delete(oldName); }
+      // Refresh save button if app is open
+      const b = document.getElementById('btnSaveLocal');
+      if (b) b.innerHTML = saveBtnLabel();
     } catch (e) { console.warn('Cloud save failed:', e); }
   }
 
@@ -1307,14 +1310,18 @@ Required structure:
     return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
   }
 
+  function saveBtnLabel() {
+    return 'Save' + charCloudBadge(state.character?.name, state);
+  }
+
   function flashSaveBtn(msg, duration) {
     const btn = document.getElementById('btnSaveLocal');
     if (!btn) return;
-    btn.textContent = msg;
+    btn.innerHTML = msg;
     clearTimeout(flashSaveBtn._t);
     if (duration > 0) flashSaveBtn._t = setTimeout(() => {
       const b = document.getElementById('btnSaveLocal');
-      if (b) b.textContent = 'Save';
+      if (b) b.innerHTML = saveBtnLabel();
     }, duration);
   }
 
@@ -1437,7 +1444,7 @@ Required structure:
 
     $('#tabsCard').innerHTML = `
       <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
-        <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">Save</button>
+        <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">${saveBtnLabel()}</button>
 
         <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
         <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
