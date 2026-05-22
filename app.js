@@ -1,6 +1,49 @@
 
 (() => {
-  const STORAGE_KEY = 'dndCharTracker.v1';
+  const STORAGE_KEY = 'dndCharTracker.v1';       // legacy single-char key
+  const CHARS_KEY   = 'dndCharTracker.chars';     // multi-char store: { name → state }
+
+  // --- Multi-character storage helpers ---
+  function loadAllChars(){
+    try {
+      const raw = localStorage.getItem(CHARS_KEY);
+      const chars = raw ? JSON.parse(raw) : {};
+      // Migrate legacy single-char save if present and not already migrated
+      const legacy = localStorage.getItem(STORAGE_KEY);
+      if (legacy) {
+        try {
+          const legState = normalize(JSON.parse(legacy));
+          const name = legState.character.name || 'Unnamed';
+          if (!chars[name]) chars[name] = legState;
+        } catch {}
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      return chars;
+    } catch { return {}; }
+  }
+
+  function saveChar(charState){
+    try {
+      const chars = loadAllChars();
+      const name = charState.character.name || 'Unnamed';
+      // Clean up old key if character was renamed
+      if (currentSaveName && currentSaveName !== name && chars[currentSaveName]) {
+        delete chars[currentSaveName];
+      }
+      chars[name] = charState;
+      currentSaveName = name;
+      localStorage.setItem(CHARS_KEY, JSON.stringify(chars));
+      return true;
+    } catch { return false; }
+  }
+
+  function deleteChar(name){
+    try {
+      const chars = loadAllChars();
+      delete chars[name];
+      localStorage.setItem(CHARS_KEY, JSON.stringify(chars));
+    } catch {}
+  }
 
   /**
    * Base schema (compatible with the user's DMGPT export snippet), plus optional extensions.
@@ -168,7 +211,8 @@ Required structure:
 }`;
 
   // --- State ---
-  let state = loadFromLocalStorage() || EXAMPLE;
+  let state = normalize(newBlank());
+  let currentSaveName = null;   // tracks which name key we last saved under
   let activeTab = 'overview';
   let menuOpen = false;
 
@@ -188,20 +232,120 @@ Required structure:
     document.getElementById('landingOverlay').style.display = 'flex';
     document.querySelector('.app').style.display = 'none';
     document.getElementById('hostView').style.display = 'none';
+    document.getElementById('landingStatus').textContent = '';
+    // Reset to step 1
+    document.getElementById('landingMainBtns').style.display = 'flex';
+    document.getElementById('landingCharPicker').style.display = 'none';
+    document.getElementById('landingModePicker').style.display = 'none';
+    document.getElementById('landingJoinForm').style.display = 'none';
+    document.getElementById('mpCodeInput').value = '';
 
-    document.getElementById('btnSolo').onclick = startSolo;
     document.getElementById('btnHost').onclick = startHost;
-    document.getElementById('btnJoin').onclick = () => {
+
+    document.getElementById('btnChooseChar').onclick = () => showCharPicker();
+  }
+
+  function showCharPicker(){
+    document.getElementById('landingMainBtns').style.display = 'none';
+    document.getElementById('landingCharPicker').style.display = 'block';
+    document.getElementById('landingModePicker').style.display = 'none';
+    document.getElementById('landingStatus').textContent = '';
+    document.getElementById('newCharForm').style.display = 'none';
+    document.getElementById('btnNewChar').style.display = '';
+
+    const chars = loadAllChars();
+    const names = Object.keys(chars).sort();
+    const list = document.getElementById('charPickerList');
+
+    list.innerHTML = names.length
+      ? names.map(n => `
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="btn landing-btn" data-charname="${escapeAttr(n)}" style="flex:1; text-align:left;">${escapeHtml(n)}</button>
+            <button class="btn danger" data-chardelete="${escapeAttr(n)}" style="padding:6px 10px;" title="Delete">✕</button>
+          </div>`).join('')
+      : `<div class="mini" style="text-align:center; padding:10px;">No saved characters yet.</div>`;
+
+    list.querySelectorAll('[data-charname]').forEach(btn => btn.onclick = () => {
+      const name = btn.dataset.charname;
+      state = normalize(chars[name]);
+      currentSaveName = name;
+      showModePicker(name);
+    });
+
+    list.querySelectorAll('[data-chardelete]').forEach(btn => btn.onclick = () => {
+      const name = btn.dataset.chardelete;
+      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      deleteChar(name);
+      showCharPicker();
+    });
+
+    document.getElementById('btnNewChar').onclick = () => {
+      document.getElementById('btnNewChar').style.display = 'none';
+      document.getElementById('newCharForm').style.display = 'block';
+      const nameInput = document.getElementById('newCharNameInput');
+      nameInput.value = '';
+      nameInput.focus();
+    };
+
+    const confirmNew = () => {
+      const name = (document.getElementById('newCharNameInput').value || '').trim();
+      const errEl = document.getElementById('newCharError');
+      if (!name) {
+        errEl.textContent = 'Please enter a name.';
+        errEl.style.display = 'block';
+        return;
+      }
+      const existing = loadAllChars();
+      if (existing[name]) {
+        errEl.textContent = `"${name}" already exists. Choose a different name.`;
+        errEl.style.display = 'block';
+        document.getElementById('newCharNameInput').select();
+        return;
+      }
+      errEl.style.display = 'none';
+      setLandingStatus('');
+      state = normalize(newBlank());
+      state.character.name = name;
+      currentSaveName = null;
+      showModePicker(name);
+    };
+
+    document.getElementById('btnNewCharConfirm').onclick = confirmNew;
+    document.getElementById('newCharNameInput').onkeydown = e => { if (e.key === 'Enter') confirmNew(); };
+    document.getElementById('btnNewCharCancel').onclick = () => {
+      document.getElementById('newCharForm').style.display = 'none';
+      document.getElementById('btnNewChar').style.display = '';
+      document.getElementById('newCharError').style.display = 'none';
+      setLandingStatus('');
+    };
+
+    document.getElementById('btnBackFromPicker').onclick = () => showLanding();
+  }
+
+  function showModePicker(charName){
+    document.getElementById('landingCharPicker').style.display = 'none';
+    document.getElementById('landingModePicker').style.display = 'block';
+    document.getElementById('landingModeLabel').textContent = `Playing as: ${charName}`;
+    document.getElementById('landingJoinForm').style.display = 'none';
+    document.getElementById('landingStatus').textContent = '';
+
+    document.getElementById('btnGoSolo').onclick = startSolo;
+
+    document.getElementById('btnGoJoin').onclick = () => {
       document.getElementById('landingJoinForm').style.display = 'block';
     };
+
     document.getElementById('btnJoinConfirm').onclick = () => {
       const code = (document.getElementById('mpCodeInput').value || '').trim().toUpperCase();
       if (!code) { setLandingStatus('Enter a room code.'); return; }
       joinGame(code);
     };
+
     document.getElementById('mpCodeInput').addEventListener('keydown', e => {
       if (e.key === 'Enter') document.getElementById('btnJoinConfirm').click();
     });
+
+    document.getElementById('btnBackFromMode').onclick = () => showCharPicker();
   }
 
   function setLandingStatus(msg){ document.getElementById('landingStatus').textContent = msg; }
@@ -300,6 +444,7 @@ Required structure:
   }
 
   function returnToMenu(){
+    if (gameMode !== 'host') saveToLocalStorage(); // save character before leaving (not for host)
     stopAutosave();
     if (mpPeer) { try { mpPeer.destroy(); } catch(_){} mpPeer = null; }
     mpHostConn = null;
@@ -454,7 +599,6 @@ Required structure:
       { id:'combat',   label:'Combat' },
       { id:'inventory',label:'Inventory' },
       { id:'spells',   label:'Spells', hide: !ch.spellcasting },
-      { id:'camp',     label:'Camp' },
     ].filter(t => !t.hide);
 
     function mod(v){ const m=Math.floor((toInt(v,10)-10)/2); return (m>=0?'+':'')+m; }
@@ -992,8 +1136,7 @@ Required structure:
   }
 
   function saveToLocalStorage(){
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
-    catch { return false; }
+    return saveChar(state);
   }
 
   function startAutosave(){
@@ -1006,13 +1149,8 @@ Required structure:
   }
 
   function loadFromLocalStorage(){
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      return normalize(JSON.parse(raw));
-    } catch {
-      return null;
-    }
+    // Legacy — no longer used for initial load
+    return null;
   }
 
   function downloadJSON(){
@@ -1049,6 +1187,12 @@ Required structure:
     const title = `${escapeHtml(c.name)} · Level ${c.level} ${escapeHtml(c.class)}${c.subclass ? ` (${escapeHtml(c.subclass)})` : ''}`;
     const sub = [c.race, c.background].filter(Boolean).map(escapeHtml).join(' · ');
 
+    const as = c.ability_scores || {};
+    const profBonus = toInt(c.combat.proficiency_bonus, 2);
+    const wisMod = Math.floor((toInt(as.wis, 10) - 10) / 2);
+    const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
+    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0);
+
     const hpMax = c.hp.max || 1;
     const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
     const pct = Math.round((hpCur / hpMax) * 100);
@@ -1067,7 +1211,7 @@ Required structure:
             <span class="pill">AC <b style="color:var(--text)">${c.combat.ac}</b></span>
             <span class="pill">Speed <b style="color:var(--text)">${c.combat.speed}</b></span>
             <span class="pill">Init <b style="color:var(--text)">${signed(c.combat.initiative_mod)}</b></span>
-            <span class="pill">Prof <b style="color:var(--text)">+${c.combat.proficiency_bonus}</b></span>
+            <span class="pill">PP <b style="color:var(--text)">${passivePerception}</b></span>
           </div>
         </div>
 
@@ -1410,35 +1554,10 @@ Required structure:
           <div class="row" style="margin-top:8px;">
             <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
           </div>
-
-          <h2 style="margin-top:14px;">Raw JSON (advanced)</h2>
-          <div class="mini">Edit the full state directly. Useful for imports and corrections.</div>
-          <textarea id="rawJson" style="min-height:240px; font-family:var(--mono);"></textarea>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn" id="btnApplyRaw">Apply Raw JSON</button>
-          </div>
-        </div>
-
-        <div class="col">
-          <h2>Schema Expectations</h2>
-          <div class="mini">This app understands <span class="kbd">dnd-char-tracker@1</span> plus optional fields: <span class="kbd">resources</span>, <span class="kbd">features</span>, <span class="kbd">attacks</span>, <span class="kbd">inventory</span>, <span class="kbd">conditions</span>, <span class="kbd">notes</span>.</div>
-          <details style="margin-top:10px;">
-            <summary>What DMGPT should export</summary>
-            <pre class="mini" style="white-space:pre-wrap; font-family:var(--mono);">${escapeHtml(stripCodeFences(DMGPT_PROMPT))}</pre>
-          </details>
-
-          <h2 style="margin-top:14px;">Sanity Checks</h2>
-          <ul class="mini">
-            <li>HP current/max are numbers, not strings.</li>
-            <li>Spell slots are an array of objects: <span class="kbd">{level,max,used}</span>.</li>
-            <li>If your DMGPT adds extra text outside the JSON block, paste only the JSON (or the code block).</li>
-          </ul>
         </div>
       </div>
     `;
     $('#contentCard').innerHTML += editHtml;
-
-    $('#rawJson').value = JSON.stringify(state, null, 2);
 
     wireTextFields('#contentCard');
     wireNumberFields('#contentCard');
@@ -1454,17 +1573,6 @@ Required structure:
         };
       }
       render();
-    };
-
-    $('#btnApplyRaw').onclick = () => {
-      try {
-        const parsed = parseJSONLoose($('#rawJson').value);
-        state = normalize(parsed);
-        render();
-        toast('Applied raw JSON.');
-      } catch (e) {
-        toast('Raw JSON parse failed: ' + (e?.message || String(e)));
-      }
     };
   }
 
@@ -2464,33 +2572,16 @@ Required structure:
   };
 
   $('#btnWipe').onclick = () => {
-    if (!confirm('Wipe local save? This does not affect downloaded files.')) return;
-    localStorage.removeItem(STORAGE_KEY);
+    if (!confirm('Wipe local save for this character? This does not affect downloaded files.')) return;
+    const name = state.character.name || 'Unnamed';
+    deleteChar(name);
+    currentSaveName = null;
     toast('Local save wiped.');
   };
 
-  // Prompt box content
-  $('#promptText').value = DMGPT_PROMPT;
-
-  $('#btnCopyPrompt').onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(DMGPT_PROMPT);
-      toast('Copied DMGPT prompt.');
-    } catch {
-      toast('Clipboard copy failed.');
-    }
-  };
-
-  $('#btnCopySchema').onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(EXAMPLE, null, 2));
-      toast('Copied schema example JSON.');
-    } catch {
-      toast('Clipboard copy failed.');
-    }
-  };
-
   // --- Boot ---
+  // Run migration (legacy v1 → multi-char) immediately on load
+  loadAllChars();
   state = normalize(state);
   showLanding();
 

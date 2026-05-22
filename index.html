@@ -13,15 +13,39 @@
     <div class="landing-card">
       <div class="landing-title">⚔️ DnD Character Tracker</div>
       <div class="landing-sub">Choose how you want to play</div>
-      <div class="landing-btns">
-        <button class="btn landing-btn" id="btnSolo">Play Solo</button>
+      <div class="landing-btns" id="landingMainBtns">
         <button class="btn landing-btn" id="btnHost">Host a Game</button>
-        <button class="btn landing-btn" id="btnJoin">Join a Game</button>
+        <button class="btn landing-btn" id="btnChooseChar">Choose Character</button>
       </div>
-      <div id="landingJoinForm" style="display:none; margin-top:16px;">
-        <input type="text" id="mpCodeInput" placeholder="Enter room code" maxlength="8"
-          style="text-transform:uppercase; letter-spacing:3px; font-size:20px; text-align:center; width:100%; padding:10px;" />
-        <button class="btn landing-btn" id="btnJoinConfirm" style="margin-top:8px;">Connect</button>
+      <!-- Character picker (step 2) -->
+      <div id="landingCharPicker" style="display:none; margin-top:16px; width:100%;">
+        <div class="mini" style="margin-bottom:8px; font-weight:600;">Select a character:</div>
+        <div id="charPickerList" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto;"></div>
+        <button class="btn landing-btn" id="btnNewChar" style="margin-top:10px; width:100%;">+ New Character</button>
+        <div id="newCharForm" style="display:none; margin-top:8px;">
+          <input type="text" id="newCharNameInput" placeholder="Character name…" maxlength="60"
+            style="width:100%; padding:10px; font-size:16px;" />
+          <div id="newCharError" class="mini" style="display:none; color:var(--bad); margin-top:4px;"></div>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button class="btn landing-btn" id="btnNewCharConfirm" style="flex:1;">Create</button>
+            <button class="btn landing-btn" id="btnNewCharCancel" style="flex:1;">Cancel</button>
+          </div>
+        </div>
+        <button class="btn landing-btn" id="btnBackFromPicker" style="margin-top:6px; width:100%;">← Back</button>
+      </div>
+      <!-- Mode picker (step 3) -->
+      <div id="landingModePicker" style="display:none; margin-top:16px; width:100%;">
+        <div class="mini" style="margin-bottom:8px; font-weight:600;" id="landingModeLabel"></div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn landing-btn" id="btnGoSolo" style="flex:1;">Play Solo</button>
+          <button class="btn landing-btn" id="btnGoJoin" style="flex:1;">Join Game</button>
+        </div>
+        <div id="landingJoinForm" style="display:none; margin-top:10px;">
+          <input type="text" id="mpCodeInput" placeholder="Enter room code" maxlength="8"
+            style="text-transform:uppercase; letter-spacing:3px; font-size:20px; text-align:center; width:100%; padding:10px;" />
+          <button class="btn landing-btn" id="btnJoinConfirm" style="margin-top:8px; width:100%;">Connect</button>
+        </div>
+        <button class="btn landing-btn" id="btnBackFromMode" style="margin-top:6px; width:100%;">← Back</button>
       </div>
       <div id="landingStatus" class="mini" style="margin-top:12px; min-height:18px;"></div>
     </div>
@@ -38,7 +62,7 @@
       <div class="card" id="headerCard"></div>
       <div class="card" id="tabsCard"></div>
       <div class="card" id="menuPanel" style="display:none;">
-        <div class="grid3">
+        <div class="grid2">
           <div class="col">
             <h2>Character</h2>
             <button class="btn" id="btnNew">New Character</button>
@@ -55,12 +79,6 @@
               Load from File
               <input type="file" id="fileInput" accept=".json" style="display:none;" />
             </label>
-          </div>
-          <div class="col">
-            <h2>DMGPT Prompt</h2>
-            <textarea id="promptText" readonly style="min-height:80px;"></textarea>
-            <button class="btn" id="btnCopyPrompt">Copy Prompt</button>
-            <button class="btn" id="btnCopySchema">Copy Schema Example</button>
           </div>
         </div>
       </div>
