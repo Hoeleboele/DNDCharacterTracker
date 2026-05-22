@@ -1614,9 +1614,7 @@ Required structure:
 
           <h2 style="margin-top:14px;">HP</h2>
           <div class="grid3">
-            ${numField('Current','hp.current', c.hp.current)}
             ${numField('Max','hp.max', c.hp.max)}
-            ${numField('Temp','hp.temp', c.hp.temp || 0)}
           </div>
 
           <h2 style="margin-top:14px;">Spellcasting</h2>
@@ -1631,6 +1629,32 @@ Required structure:
 
     wireTextFields('#contentCard');
     wireNumberFields('#contentCard');
+
+    // Name duplicate validation
+    const nameInput = $('#contentCard').querySelector('[data-text="name"]');
+    if (nameInput) {
+      // Inject error message element after the input
+      const errSpan = document.createElement('div');
+      errSpan.className = 'mini';
+      errSpan.style.cssText = 'color:var(--bad); display:none; margin-top:2px;';
+      nameInput.parentNode.appendChild(errSpan);
+
+      nameInput.oninput = () => {
+        const newName = nameInput.value.trim();
+        const chars = loadAllChars();
+        if (newName && chars[newName] && newName !== currentSaveName) {
+          errSpan.textContent = `"${newName}" already exists — name not saved.`;
+          errSpan.style.display = 'block';
+          nameInput.style.borderColor = 'var(--bad)';
+          // Do NOT update state.character.name
+        } else {
+          errSpan.style.display = 'none';
+          nameInput.style.borderColor = '';
+          setPath(state.character, 'name', nameInput.value);
+          renderHeader();
+        }
+      };
+    }
 
     $('#btnToggleCaster').onclick = () => {
       if (c.spellcasting) {
@@ -1656,14 +1680,21 @@ Required structure:
       return;
     }
 
+    const profBonus = toInt(c.combat.proficiency_bonus, 2);
+    const abilKey = (s.ability || 'INT').toLowerCase();
+    const abilScore = toInt(c.ability_scores?.[abilKey], 10);
+    const abilMod = Math.floor((abilScore - 10) / 2);
+    const saveDC = 8 + profBonus + abilMod;
+    const atkBonus = profBonus + abilMod;
+
     $('#contentCard').innerHTML = `
       <div class="grid2">
         <div class="col">
           <h2>Spellcasting</h2>
           <div class="grid3">
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
-            ${numField('Save DC','spellcasting.save_dc', s.save_dc ?? 0)}
-            ${numField('Attack Bonus','spellcasting.attack_bonus', s.attack_bonus ?? 0)}
+            <label class="col" style="gap:6px;"><div class="mini">Save DC</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span></label>
+            <label class="col" style="gap:6px;"><div class="mini">Attack Bonus</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span></label>
             ${numField('Max Prepared','spellcasting.max_prepared', s.max_prepared ?? 1, 1)}
           </div>
 
@@ -1694,6 +1725,19 @@ Required structure:
 
     wireNumberFields('#contentCard');
     wireSelectFields('#contentCard');
+
+    // max_prepared change must re-render to update the counter
+    const maxPrepInp = $('#contentCard').querySelector('[data-num="spellcasting.max_prepared"]');
+    if (maxPrepInp) maxPrepInp.oninput = () => {
+      let v = toInt(maxPrepInp.value, 1);
+      if (v < 1) { v = 1; maxPrepInp.value = 1; }
+      s.max_prepared = v;
+      render();
+    };
+
+    // Re-render when ability changes so DC/attack bonus update immediately
+    const abilitySel = $('#contentCard').querySelector('[data-sel="spellcasting.ability"]');
+    if (abilitySel) abilitySel.onchange = () => { s.ability = abilitySel.value; render(); };
 
     renderSlots();
     renderSpellList('cantrips', '#cantripsList');
