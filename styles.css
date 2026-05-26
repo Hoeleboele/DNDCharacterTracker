@@ -160,6 +160,10 @@
 
     .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .grid3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+    @media (min-width:640px){
+      .ability-scores-grid{ grid-template-columns: repeat(3, 1fr) !important; }
+      .ability-scores-grid > .col { display: contents; }
+    }
 
     .hpbar{
       width:100%; height:14px;

@@ -15,6 +15,11 @@
   const STORAGE_KEY = 'dndCharTracker.v1';       // legacy single-char key
   const CHARS_KEY   = 'dndCharTracker.chars';     // multi-char store: { name → state }
   const FAV_TABS_KEY = 'dndCharTracker.favTabs';  // favorited tab IDs (max 3)
+  const STARRED_FIELDS_KEY = 'dndCharTracker.starred'; // starred fields: [{key,label}]
+
+  function loadStarredFields(){ try { const v = JSON.parse(localStorage.getItem(STARRED_FIELDS_KEY)); return Array.isArray(v) ? v : []; } catch(_){ return []; } }
+  function saveStarredFields(arr){ try { localStorage.setItem(STARRED_FIELDS_KEY, JSON.stringify(arr)); } catch(_){} }
+  let starredFields = loadStarredFields();
 
   // --- Multi-character storage helpers ---
   function loadAllChars(){
@@ -72,6 +77,7 @@
         class: 'Fighter',
         subclass: '',
         race: '',
+        alignment: '',
         background: '',
         combat: { ac: 10, speed: 30, initiative_mod: 0, proficiency_bonus: 2 },
         hp: { current: 10, max: 10, temp: 0, notes: '' },
@@ -226,7 +232,7 @@ Required structure:
   let state = normalize(newBlank());
   let currentSaveName = null;   // tracks which name key we last saved under
   let activeTab = 'overview';
-  let favTabs = (() => { try { const v = JSON.parse(localStorage.getItem(FAV_TABS_KEY)); return Array.isArray(v) ? v.slice(0,3) : []; } catch(_){ return []; } })();
+  let favTabs = (() => { try { const v = JSON.parse(localStorage.getItem(FAV_TABS_KEY)); return Array.isArray(v) ? v.slice(0,4) : []; } catch(_){ return []; } })();
   if (!favTabs.length) favTabs = ['overview', 'combat', 'stats'];
   let tabDrawerOpen = false;
   let menuOpen = false;
@@ -790,6 +796,7 @@ Required structure:
       { id:'overview', label:'Overview' },
       { id:'stats',    label:'Stats' },
       { id:'class_race',label:'Character' },
+      { id:'features', label:'Features' },
       { id:'combat',   label:'Combat' },
       { id:'inventory',label:'Inventory' },
       { id:'spells',   label:'Spells', hide: !ch.spellcasting },
@@ -1508,6 +1515,7 @@ Required structure:
       { id:'overview',   label:'Overview' },
       { id:'stats',      label:'Stats' },
       { id:'class_race', label:'Character' },
+      { id:'features',   label:'Features' },
       { id:'spells',     label:'Spells', hide: !isCaster },
       { id:'combat',     label:'Combat' },
       { id:'inventory',  label:'Inventory' },
@@ -1559,7 +1567,7 @@ Required structure:
     // Hint label
     const hint = document.createElement('div');
     hint.style.cssText = 'grid-column:1/-1; font-size:11px; color:var(--muted); text-align:center; margin-bottom:2px;';
-    hint.textContent = '★ pin up to 3 tabs to the bar';
+    hint.textContent = '★ pin up to 4 tabs to the bar';
     drawer.appendChild(hint);
 
     allTabs.forEach(t => {
@@ -1581,7 +1589,7 @@ Required structure:
         color:${isFav ? 'var(--warn)' : 'var(--muted)'}; padding:4px;
       `;
       star.textContent = isFav ? '★' : '☆';
-      star.title = isFav ? 'Unpin from bar' : (favTabs.length >= 3 ? 'Unpin another tab first' : 'Pin to bar');
+      star.title = isFav ? 'Unpin from bar' : (favTabs.length >= 4 ? 'Unpin another tab first' : 'Pin to bar');
 
       wrap.appendChild(btn);
       wrap.appendChild(star);
@@ -1628,11 +1636,11 @@ Required structure:
         const id = star.dataset.favBtn;
         if (favTabs.includes(id)) {
           favTabs = favTabs.filter(x => x !== id);
-        } else if (favTabs.length < 3) {
+        } else if (favTabs.length < 4) {
           favTabs = [...favTabs, id];
         } else {
           // Replace the last favorited tab with the new one
-          favTabs = [...favTabs.slice(0, 2), id];
+          favTabs = [...favTabs.slice(0, 3), id];
         }
         saveFavTabs();
         renderTabs();
@@ -1684,85 +1692,102 @@ Required structure:
     if (activeTab === 'overview') return renderOverview(c);
     if (activeTab === 'stats') return renderStats(c);
     if (activeTab === 'class_race') return renderCharacter(c);
+    if (activeTab === 'features') return renderFeatures(c);
     if (activeTab === 'spells') return renderSpells(c);
     if (activeTab === 'combat') return renderCombat(c);
     if (activeTab === 'inventory') return renderInventory(c);
     if (activeTab === 'camp') return renderCamp(c);
   }
 
+  function getPath(obj, dotted){
+    if (dotted === '_initiative') {
+      const s = obj; const as2 = s.ability_scores||{};
+      const dex = Math.floor((toInt(as2.dex,10)-10)/2);
+      const extra = toInt((s.combat||{}).initiative_mod,0);
+      return (dex+extra >= 0 ? '+' : '') + (dex+extra);
+    }
+    if (dotted === '_passive_perception') {
+      const s = obj; const as2 = s.ability_scores||{};
+      const wis = Math.floor((toInt(as2.wis,10)-10)/2);
+      const prof = toInt((s.combat||{}).proficiency_bonus,2);
+      const hasPP = Array.isArray(s.skill_proficiencies) && s.skill_proficiencies.includes('perception');
+      const bonus = toInt((s.combat||{}).pp_bonus,0);
+      return String(10 + wis + (hasPP ? prof : 0) + bonus);
+    }
+    if (dotted === '_hit_dice') {
+      const hd = obj.hit_dice || {};
+      return `${toInt(hd.total, obj.level||1)} / ${hd.die||'d8'}`;
+    }
+    if (String(dotted).startsWith('_slot_')) {
+      const lvl = toInt(String(dotted).replace('_slot_',''), 1);
+      const slots = (obj.spellcasting||{}).spell_slots || [];
+      const ss = slots.find(s => toInt(s.level,1) === lvl);
+      if (!ss) return '—';
+      const used = clamp(toInt(ss.used,0), 0, toInt(ss.max,0));
+      return `${Math.max(0, toInt(ss.max,0)-used)} / ${toInt(ss.max,0)}`;
+    }
+    return String(dotted).split('.').reduce((cur, p) => (cur != null ? cur[p] : undefined), obj);
+  }
+
+  function tabForKey(key){
+    if (key.startsWith('_slot_') || key.startsWith('spellcasting.')) return 'spells';
+    if (key.startsWith('inventory.')) return 'inventory';
+    if (key.startsWith('ability_scores.') || key.startsWith('skill_')) return 'stats';
+    if (key === 'attacks' || key === 'actions' || key === 'combat_spells') return 'combat';
+    if (key.startsWith('resources.') || key.startsWith('features.')) return 'features';
+    return 'class_race';
+  }
+
   function renderOverview(c){
-    const as = c.ability_scores || {};
-    const profBonus = toInt(c.combat.proficiency_bonus, 2);
-    const wisMod = Math.floor((toInt(as.wis, 10) - 10) / 2);
-    const dexMod  = Math.floor((toInt(as.dex, 10) - 10) / 2);
-    const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
-    const ppBonus = toInt(c.combat.pp_bonus, 0);
-    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0) + ppBonus;
-    const initExtra = toInt(c.combat.initiative_mod, 0);
-    const initTotal = dexMod + initExtra;
+    const starred = starredFields;
+
+    const rows = starred.map(f => {
+      const val = getPath(c, f.key);
+      const display = val == null || val === '' ? '<span style="color:var(--muted)">—</span>' : escapeHtml(String(val));
+      const tab = tabForKey(f.key);
+      return `
+        <div class="row" style="justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); gap:8px;">
+          <button class="btn" data-jump-tab="${escapeAttr(tab)}" style="flex-shrink:0; padding:4px 10px; font-size:12px;">Jump to</button>
+          <span class="mini" style="color:var(--muted); flex:1;">${escapeHtml(f.label)}</span>
+          <span style="font-weight:600; text-align:right; flex:1;">${display}</span>
+          <button data-unstar-key="${escapeAttr(f.key)}" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted);padding:0 4px;flex-shrink:0;" title="Remove from overview">×</button>
+        </div>
+      `;
+    }).join('');
 
     $('#contentCard').innerHTML = `
-      <div class="grid2">
-        <div class="col">
-          <h2>Quick Stats</h2>
-          <div class="grid2">
-            ${numField('AC','combat.ac', c.combat.ac)}
-            ${numField('Proficiency','combat.proficiency_bonus', c.combat.proficiency_bonus)}
-            ${numField('Speed','combat.speed', c.combat.speed)}
-            ${numField('Inspiration','inspiration', toInt(c.inspiration, 0))}
-            <label class="col" style="gap:6px;"><div class="mini">Initiative</div><span class="pill" style="font-size:1.1em; font-weight:700;">${initTotal >= 0 ? '+' : ''}${initTotal}</span><div class="mini muted">DEX mod (${dexMod >= 0 ? '+' : ''}${dexMod}) + bonus (${initExtra >= 0 ? '+' : ''}${initExtra})</div></label>
-            ${numField('Init Extra Bonus','combat.initiative_mod', initExtra)}
-          </div>
-          <div class="grid2" style="margin-top:10px;">
-            <label class="col" style="gap:6px;"><div class="mini">Passive Perception</div><span class="pill" style="font-size:1.1em; font-weight:700;">${passivePerception}</span><div class="mini muted">10 + WIS mod (${wisMod >= 0 ? '+' : ''}${wisMod})${percProf ? ` + Prof (+${profBonus})` : ''} + bonus (${ppBonus >= 0 ? '+' : ''}${ppBonus})</div></label>
-            ${numField('PP Extra Bonus','combat.pp_bonus', ppBonus)}
-          </div>
-
-          <h2 style="margin-top:10px;">Conditions</h2>
-          <div class="row" style="margin-top:8px;">
-            <select id="condInput">
-              <option value="">— Select condition —</option>
-              ${['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'].map(x => `<option value="${x}">${x}</option>`).join('')}
-            </select>
-            <button class="btn" id="btnAddCond">Add</button>
-          </div>
-          <div class="row" style="margin-top:8px;">
-            ${(c.conditions||[]).length ? (c.conditions||[]).map((x,i)=>`<span class="pill">${escapeHtml(x)} <a href="#" data-del-cond="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No conditions.</div>`}
-          </div>
+      <h2>Overview</h2>
+      ${starred.length === 0 ? `
+        <div style="margin-top:32px; text-align:center; color:var(--muted); line-height:1.7;">
+          <div style="font-size:2em; margin-bottom:12px;">✨</div>
+          <div>This looks clean….</div>
+          <div class="mini" style="margin-top:8px;">You can add stuff here by pressing the <span style="color:var(--warn);">★</span> throughout the app.</div>
         </div>
-
-      </div>
+      ` : `
+        <div style="margin-top:12px; max-width:520px;">
+          ${rows}
+        </div>
+      `}
     `;
 
-    wireNumberFields('#contentCard');
-
-    // Re-render when init extra bonus changes so the computed pill updates
-    const initInp = $('#contentCard').querySelector('[data-num="combat.initiative_mod"]');
-    if (initInp) initInp.oninput = () => { c.combat.initiative_mod = toInt(initInp.value, 0); render(); };
-    const ppInp = $('#contentCard').querySelector('[data-num="combat.pp_bonus"]');
-    if (ppInp) ppInp.oninput = () => { c.combat.pp_bonus = toInt(ppInp.value, 0); render(); };
-
-    $('#btnAddCond').onclick = () => {
-      const v = ($('#condInput').value || '').trim();
-      if (!v) return;
-      c.conditions = c.conditions || [];
-      if (!c.conditions.includes(v)) c.conditions.push(v);
-      $('#condInput').value = '';
-      render();
-    };
-
-    $('#contentCard').querySelectorAll('[data-del-cond]').forEach(a => {
-      a.onclick = (e) => {
-        e.preventDefault();
-        const idx = toInt(a.dataset.delCond, -1);
-        if (idx >= 0) c.conditions.splice(idx, 1);
-        render();
+    $('#contentCard').querySelectorAll('[data-jump-tab]').forEach(btn => {
+      btn.onclick = () => {
+        activeTab = btn.dataset.jumpTab;
+        renderContent();
+        renderTabs();
       };
     });
 
+    $('#contentCard').querySelectorAll('[data-unstar-key]').forEach(btn => {
+      btn.onclick = () => {
+        starredFields = starredFields.filter(f => f.key !== btn.dataset.unstarKey);
+        saveStarredFields(starredFields);
+        renderOverview(c);
+      };
+    });
   }
 
-  function renderCharacter(c){
+  function renderFeatures(c){
     $('#contentCard').innerHTML = `
       <div class="grid2">
         <div class="col">
@@ -1921,9 +1946,21 @@ Required structure:
         saveToLocalStorage();
       });
     }
+  }
 
-    // --- Identity & settings (formerly Edit tab) ---
+  function renderCharacter(c){
+    // --- Identity & settings ---
     const isCaster = !!c.spellcasting;
+    const as = c.ability_scores || {};
+    const profBonus = toInt(c.combat.proficiency_bonus, 2);
+    const wisMod = Math.floor((toInt(as.wis, 10) - 10) / 2);
+    const dexMod  = Math.floor((toInt(as.dex, 10) - 10) / 2);
+    const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
+    const ppBonus = toInt(c.combat.pp_bonus, 0);
+    const passivePerception = 10 + wisMod + (percProf ? profBonus : 0) + ppBonus;
+    const initExtra = toInt(c.combat.initiative_mod, 0);
+    const initTotal = dexMod + initExtra;
+
     const editHtml = `
       <hr style="margin:24px 0; border-color:var(--line);" />
       <div class="grid2">
@@ -1935,19 +1972,58 @@ Required structure:
             ${textField('Class','class', c.class || '')}
             ${textField('Subclass','subclass', c.subclass || '')}
             ${textField('Race','race', c.race || '')}
+            ${textField('Alignment','alignment', c.alignment || '')}
             ${textField('Background','background', c.background || '')}
+            ${numField('AC','combat.ac', c.combat.ac)}
+            ${numField('Proficiency','combat.proficiency_bonus', c.combat.proficiency_bonus)}
+            ${numField('Speed','combat.speed', c.combat.speed)}
+            ${numField('Inspiration','inspiration', toInt(c.inspiration, 0))}
+            <label class="col" style="gap:6px;">
+              <div class="mini" style="display:flex;align-items:center;gap:4px;">
+                Initiative
+                ${fieldStar('_initiative','Initiative')}
+                <button id="btnInitToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button>
+              </div>
+              <span class="pill" style="font-size:1.1em; font-weight:700;">${initTotal >= 0 ? '+' : ''}${initTotal}</span>
+              <div class="mini muted">DEX mod (${dexMod >= 0 ? '+' : ''}${dexMod}) + bonus (${initExtra >= 0 ? '+' : ''}${initExtra})</div>
+            </label>
+            <div id="initBonusField" style="display:none;">${numField('Init Extra Bonus','combat.initiative_mod', initExtra).replace(fieldStar('combat.initiative_mod','Init Extra Bonus'),'')}</div>
+          </div>
+          <div class="grid2" style="margin-top:10px;">
+            <label class="col" style="gap:6px;">
+              <div class="mini" style="display:flex;align-items:center;gap:4px;">
+                Passive Perception
+                ${fieldStar('_passive_perception','Passive Perception')}
+                <button id="btnPpToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button>
+              </div>
+              <span class="pill" style="font-size:1.1em; font-weight:700;">${passivePerception}</span>
+              <div class="mini muted">10 + WIS (${wisMod >= 0 ? '+' : ''}${wisMod})${percProf ? ` + Prof (+${profBonus})` : ''} + bonus (${ppBonus >= 0 ? '+' : ''}${ppBonus})</div>
+            </label>
+            <div id="ppBonusField" style="display:none;">${numField('PP Extra Bonus','combat.pp_bonus', ppBonus).replace(fieldStar('combat.pp_bonus','PP Extra Bonus'),'')}</div>
           </div>
 
-          <div class="mini" style="margin-top:10px; font-weight:600;">Languages</div>
-          <div class="row" style="margin-top:6px;">
-            <input type="text" id="langInput" placeholder="Add a language…" style="flex:1;" />
-            <button class="btn" id="btnAddLang">Add</button>
-          </div>
-          <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;">
-            ${(c.languages||[]).length ? (c.languages||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-lang="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No languages added.</div>`}
+          <h2 style="margin-top:14px;">HP</h2>
+          <div class="grid3">
+            ${numField('Max','hp.max', c.hp.max)}
           </div>
 
-          <div class="mini" style="margin-top:10px; font-weight:600;">Proficiencies</div>
+          <h2 style="margin-top:14px;">Hit Dice ${fieldStar('_hit_dice','Hit Dice')}</h2>
+          <div class="grid2">
+            <label class="col" style="gap:4px;"><div class="mini">Die Type</div>
+              <select data-sel="hit_dice.die">
+                ${['d4','d6','d8','d10','d12','d20'].map(o => `<option value="${o}" ${((c.hit_dice||{}).die||'d8')===o?'selected':''}>${o}</option>`).join('')}
+              </select>
+            </label>
+            <label class="col" style="gap:4px;"><div class="mini">Total</div>
+              <input type="number" data-num="hit_dice.total" value="${(c.hit_dice||{}).total||(c.level||1)}" min="1" />
+            </label>
+          </div>
+
+          <div class="row" style="margin-top:14px; align-items:center;">
+            <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
+          </div>
+
+          <div class="mini" style="margin-top:14px; font-weight:600;">Proficiencies</div>
           <div class="row" style="margin-top:6px;">
             <input type="text" id="profInput" placeholder="Add a proficiency…" style="flex:1;" />
             <button class="btn" id="btnAddProf">Add</button>
@@ -1956,25 +2032,45 @@ Required structure:
             ${(c.proficiencies||[]).length ? (c.proficiencies||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-prof="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No proficiencies added.</div>`}
           </div>
 
-          <h2 style="margin-top:14px;">HP</h2>
-          <div class="grid3">
-            ${numField('Max','hp.max', c.hp.max)}
+          <div class="mini" style="margin-top:14px; font-weight:600;">Languages</div>
+          <div class="row" style="margin-top:6px;">
+            <input type="text" id="langInput" placeholder="Add a language…" style="flex:1;" />
+            <button class="btn" id="btnAddLang">Add</button>
           </div>
-
-          <h2 style="margin-top:14px;">Spellcasting</h2>
-          <div class="mini">Enable for Wizards/Clerics/etc. Disable for martial characters.</div>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
+          <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;">
+            ${(c.languages||[]).length ? (c.languages||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-lang="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No languages added.</div>`}
           </div>
         </div>
       </div>
     `;
-    $('#contentCard').innerHTML += editHtml;
+    $('#contentCard').innerHTML = editHtml;
 
     wireTextFields('#contentCard');
     wireNumberFields('#contentCard');
+    wireSelectFields('#contentCard');
 
-    // Name duplicate validation
+    // Re-render when initiative/PP bonus changes so computed pills update
+    const initInpC = $('#contentCard').querySelector('[data-num="combat.initiative_mod"]');
+    if (initInpC) initInpC.oninput = () => { c.combat.initiative_mod = toInt(initInpC.value, 0); render(); };
+    const ppInpC = $('#contentCard').querySelector('[data-num="combat.pp_bonus"]');
+    if (ppInpC) ppInpC.oninput = () => { c.combat.pp_bonus = toInt(ppInpC.value, 0); render(); };
+
+    // Collapsible bonus toggles
+    const btnInitToggle = document.getElementById('btnInitToggle');
+    if (btnInitToggle) btnInitToggle.onclick = () => {
+      const f = document.getElementById('initBonusField');
+      const open = f.style.display === 'none';
+      f.style.display = open ? 'block' : 'none';
+      btnInitToggle.innerHTML = open ? '&#9650; bonus' : '&#9660; bonus';
+    };
+    const btnPpToggle = document.getElementById('btnPpToggle');
+    if (btnPpToggle) btnPpToggle.onclick = () => {
+      const f = document.getElementById('ppBonusField');
+      const open = f.style.display === 'none';
+      f.style.display = open ? 'block' : 'none';
+      btnPpToggle.innerHTML = open ? '&#9650; bonus' : '&#9660; bonus';
+    };
+
     const nameInput = $('#contentCard').querySelector('[data-text="name"]');
     if (nameInput) {
       // Inject error message element after the input
@@ -2164,11 +2260,13 @@ Required structure:
       list.innerHTML = slots.length ? slots.map((x,i)=>{
         const used = clamp(toInt(x.used,0), 0, toInt(x.max,0));
         const max = clamp(toInt(x.max,0), 0, 99);
+        const slotKey = `_slot_${toInt(x.level,1)}`;
+        const slotLabel = `Level ${toInt(x.level,1)} Slots`;
         return `
           <div class="item">
             <div>
-              <div class="row" style="justify-content:space-between;">
-                <b>Level ${toInt(x.level,1)} Slots</b>
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <b>Level ${toInt(x.level,1)} Slots ${fieldStar(slotKey, slotLabel)}</b>
                 <span class="pill"><b>${used}</b> / ${max}</span>
               </div>
               <div class="mini">Used: ${used}. Remaining: ${Math.max(0, max-used)}.</div>
@@ -2405,19 +2503,35 @@ Required structure:
       <div class="grid2">
         <div class="col">
           <h2>Ability Scores</h2>
-          <div class="grid3" style="margin-top:12px;">
-            ${stats.map(s => {
-              const score = toInt(as[s.key], 10);
-              const positive = score >= 10;
-              return `
-                <div class="stat-block">
-                  <div class="stat-abbr">${s.abbr}</div>
-                  <div class="stat-label">${s.label}</div>
-                  <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
-                  <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
-                </div>
-              `;
-            }).join('')}
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px;" class="ability-scores-grid">
+            <div class="col" style="gap:8px;">
+              ${stats.slice(0,3).map(s => {
+                const score = toInt(as[s.key], 10);
+                const positive = score >= 10;
+                return `
+                  <div class="stat-block">
+                    <div class="stat-abbr">${s.abbr}</div>
+                    <div class="stat-label">${s.label}</div>
+                    <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
+                    <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
+                  </div>
+                `;
+              }).join('')}
+            </div>
+            <div class="col" style="gap:8px;">
+              ${stats.slice(3).map(s => {
+                const score = toInt(as[s.key], 10);
+                const positive = score >= 10;
+                return `
+                  <div class="stat-block">
+                    <div class="stat-abbr">${s.abbr}</div>
+                    <div class="stat-label">${s.label}</div>
+                    <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
+                    <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
+                  </div>
+                `;
+              }).join('')}
+            </div>
           </div>
         </div>
 
@@ -2511,14 +2625,19 @@ Required structure:
           <button class="btn" id="btnTemp">Set Temp</button>
         </div>
         <div style="margin-top:12px; border-top:1px solid var(--line); padding-top:10px;">
-          <div class="mini" style="font-weight:600; margin-bottom:6px;">Death Saving Throws</div>
-          <div class="row" style="gap:8px; align-items:center;">
-            <span class="mini" style="width:64px; color:var(--good);">Successes</span>
-            ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="successes" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--good);background:${(c.death_saves?.successes||[])[i] ? 'var(--good)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+          <div class="row" style="justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" id="btnDstToggle">
+            <div class="mini" style="font-weight:600;">Death Saving Throws</div>
+            <span id="dstChevron" style="font-size:12px; color:var(--muted);">▼</span>
           </div>
-          <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
-            <span class="mini" style="width:64px; color:var(--bad);">Failures</span>
-            ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="failures" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--bad);background:${(c.death_saves?.failures||[])[i] ? 'var(--bad)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+          <div id="dstBody" style="display:none; margin-top:8px;">
+            <div class="row" style="gap:8px; align-items:center;">
+              <span class="mini" style="width:64px; color:var(--good);">Successes</span>
+              ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="successes" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--good);background:${(c.death_saves?.successes||[])[i] ? 'var(--good)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+            </div>
+            <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+              <span class="mini" style="width:64px; color:var(--bad);">Failures</span>
+              ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="failures" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--bad);background:${(c.death_saves?.failures||[])[i] ? 'var(--bad)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+            </div>
           </div>
         </div>
       </div>
@@ -2535,14 +2654,42 @@ Required structure:
         </div>
 
       </div>
+
+      ${c.spellcasting ? `
+      <h2 style="margin-top:14px;">Spells</h2>
+      <div class="mini">Prepared or custom spells ready to cast.</div>
+      <div class="list" id="combatSpellsList" style="margin-top:10px;"></div>
+      <button class="btn" id="btnAddCombatSpell">Add Spell</button>
+      ` : ''}
+
+      <h2 style="margin-top:14px;">Conditions</h2>
+      <div class="row" style="margin-top:8px;">
+        <select id="condInputCombat">
+          <option value="">— Select condition —</option>
+          ${['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'].map(x => `<option value="${x}">${x}</option>`).join('')}
+        </select>
+        <button class="btn" id="btnAddCondCombat">Add</button>
+      </div>
+      <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;" id="condListCombat">
+        ${(c.conditions||[]).length ? (c.conditions||[]).map((x,i)=>`<span class="pill">${escapeHtml(x)} <a href="#" data-del-cond-combat="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No conditions.</div>`}
+      </div>
     `;
 
     renderAttacks();
     renderActions();
+    if (c.spellcasting) renderCombatSpells();
 
     $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
     $('#btnHeal').onclick   = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
     $('#btnTemp').onclick   = () => setTempHp(toInt($('#hpDelta').value, 0));
+
+    document.getElementById('btnDstToggle').onclick = () => {
+      const body = document.getElementById('dstBody');
+      const chevron = document.getElementById('dstChevron');
+      const open = body.style.display === 'none';
+      body.style.display = open ? 'block' : 'none';
+      chevron.textContent = open ? '▲' : '▼';
+    };
 
     $('#contentCard').querySelectorAll('.dst-btn').forEach(btn => {
       btn.onclick = () => {
@@ -2609,11 +2756,70 @@ Required structure:
       document.getElementById('btnPickCancel').onclick = () => picker.remove();
     };
 
+    document.getElementById('btnAddCondCombat').onclick = () => {
+      const v = (document.getElementById('condInputCombat').value || '').trim();
+      if (!v) return;
+      c.conditions = c.conditions || [];
+      if (!c.conditions.includes(v)) c.conditions.push(v);
+      document.getElementById('condInputCombat').value = '';
+      render();
+    };
+
+    $('#contentCard').querySelectorAll('[data-del-cond-combat]').forEach(a => {
+      a.onclick = (e) => {
+        e.preventDefault();
+        const idx = toInt(a.dataset.delCondCombat, -1);
+        if (idx >= 0) c.conditions.splice(idx, 1);
+        render();
+      };
+    });
+
     $('#btnAddAction').onclick = () => {
       c.actions = c.actions || [];
       c.actions.push({ name:'New Action', notes:'' });
       render();
     };
+
+    if (c.spellcasting) {
+      document.getElementById('btnAddCombatSpell').onclick = () => {
+        const preparedSpells = (c.spellcasting.prepared_spells || []);
+        const existingPicker = document.getElementById('combatSpellPicker');
+        if (existingPicker) { existingPicker.remove(); return; }
+
+        const picker = document.createElement('div');
+        picker.id = 'combatSpellPicker';
+        picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
+        picker.innerHTML = `
+          ${preparedSpells.length ? `<div class="mini" style="font-weight:600;">Add from prepared spells:</div>
+          ${preparedSpells.map((sp,idx) => `
+            <button class="btn" data-pick-spell="${idx}" style="text-align:left;">
+              ${escapeHtml(sp.name)} <span class="muted" style="font-size:0.85em;">Lvl ${sp.level||0}</span>
+            </button>
+          `).join('')}
+          <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>` : ''}
+          <button class="btn" id="btnPickCustomSpell">+ Custom spell</button>
+          <button class="btn danger" id="btnSpellPickCancel">Cancel</button>
+        `;
+        document.getElementById('btnAddCombatSpell').insertAdjacentElement('afterend', picker);
+
+        picker.querySelectorAll('[data-pick-spell]').forEach(btn => btn.onclick = () => {
+          const sp = preparedSpells[toInt(btn.dataset.pickSpell, 0)];
+          c.combat_spells = c.combat_spells || [];
+          c.combat_spells.push({ name: sp.name, level: sp.level || 0, notes: sp.notes || '' });
+          picker.remove();
+          render();
+        });
+
+        document.getElementById('btnPickCustomSpell').onclick = () => {
+          c.combat_spells = c.combat_spells || [];
+          c.combat_spells.push({ name:'New Spell', level:1, notes:'' });
+          picker.remove();
+          render();
+        };
+
+        document.getElementById('btnSpellPickCancel').onclick = () => picker.remove();
+      };
+    }
 
     function renderAttacks(){
       const list = $('#attacksList');
@@ -2702,6 +2908,47 @@ Required structure:
         render();
       });
     }
+
+    function renderCombatSpells(){
+      const list = document.getElementById('combatSpellsList');
+      if (!list) return;
+      const spells = c.combat_spells || [];
+      list.innerHTML = spells.length ? spells.map((sp,i) => `
+        <div class="item">
+          <div>
+            <div class="row" style="justify-content:space-between; align-items:flex-start;">
+              <b>${escapeHtml(sp.name || 'Spell')}</b>
+              <span class="pill">Level ${sp.level ?? 0}</span>
+            </div>
+            ${sp.notes ? `<div class="mini">${escapeHtml(sp.notes)}</div>` : ''}
+          </div>
+          <div class="row" style="justify-content:flex-end;">
+            <button class="btn" data-csp-edit="${i}">Edit</button>
+            <button class="btn danger" data-csp-del="${i}">Delete</button>
+          </div>
+        </div>
+      `).join('') : `<div class="mini">No spells added.</div>`;
+
+      list.querySelectorAll('[data-csp-edit]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.cspEdit, -1);
+        const sp = c.combat_spells[i];
+        const name = prompt('Spell name:', sp.name ?? '');
+        if (name == null) return;
+        const level = prompt('Spell level (0 = cantrip):', sp.level ?? 1);
+        if (level == null) return;
+        const notes = prompt('Notes:', sp.notes ?? '');
+        if (notes == null) return;
+        sp.name = name;
+        sp.level = toInt(level, 0);
+        sp.notes = notes;
+        render();
+      });
+      list.querySelectorAll('[data-csp-del]').forEach(btn => btn.onclick = () => {
+        const i = toInt(btn.dataset.cspDel, -1);
+        c.combat_spells.splice(i, 1);
+        render();
+      });
+    }
   }
 
   function renderInventory(c){
@@ -2727,11 +2974,11 @@ Required structure:
         <div class="col">
           <h2>Currency</h2>
           <div class="grid3" style="margin-top:10px;">
-            ${numField('CP','inventory.currency.cp', inv.currency.cp)}
-            ${numField('SP','inventory.currency.sp', inv.currency.sp)}
-            ${numField('EP','inventory.currency.ep', inv.currency.ep)}
-            ${numField('GP','inventory.currency.gp', inv.currency.gp)}
-            ${numField('PP','inventory.currency.pp', inv.currency.pp)}
+            ${numField('CP (Copper pieces)','inventory.currency.cp', inv.currency.cp)}
+            ${numField('SP (Silver pieces)','inventory.currency.sp', inv.currency.sp)}
+            ${numField('EP (Electrum piece)','inventory.currency.ep', inv.currency.ep)}
+            ${numField('GP (Gold piece)','inventory.currency.gp', inv.currency.gp)}
+            ${numField('PP (Platinum piece)','inventory.currency.pp', inv.currency.pp)}
           </div>
         </div>
       </div>
@@ -2867,12 +3114,8 @@ Required structure:
 
       <h2>Hit Dice</h2>
       <div class="col" style="gap:10px; max-width:420px; margin-bottom:28px;">
-        <div class="grid2" style="align-items:end;">
-          ${selectField('Die Type','hit_dice.die', hd.die || 'd8', ['d4','d6','d8','d10','d12','d20'])}
-          ${numField('Total','hit_dice.total', hdTotal, 1)}
-        </div>
         <div class="row" style="gap:8px; align-items:center;">
-          <span class="pill" style="font-size:1em;">${hdAvail} / ${hdTotal} available</span>
+          <span class="pill" style="font-size:1em;">${hdAvail} / ${hdTotal} ${hd.die || 'd8'} available</span>
           <button class="btn" id="btnSpendHd" ${hdAvail < 1 ? 'disabled' : ''}>Spend 1</button>
         </div>
       </div>
@@ -2891,31 +3134,19 @@ Required structure:
       render();
     };
 
-    wireNumberFields('#contentCard');
-    wireSelectFields('#contentCard');
     wireTextAreaFields('#contentCard');
-
-    // hit_dice.total change must re-render to update the available counter
-    const hdTotalInp = document.querySelector('[data-num="hit_dice.total"]');
-    if (hdTotalInp) hdTotalInp.oninput = () => {
-      const minVal = hdTotalInp.min !== '' ? toInt(hdTotalInp.min, null) : null;
-      let v = toInt(hdTotalInp.value, 0);
-      if (minVal != null && v < minVal) { v = minVal; hdTotalInp.value = v; }
-      const c = state.character;
-      c.hit_dice = c.hit_dice || {};
-      c.hit_dice.total = v;
-      // clamp used so it never exceeds the new total
-      c.hit_dice.used = clamp(toInt(c.hit_dice.used, 0), 0, v);
-      state = normalize(state);
-      render();
-    };
   }
 
   // --- Field templates & wiring ---
+  function fieldStar(path, label){
+    const isStarred = starredFields.some(f => f.key === path);
+    return `<button class="field-star-btn" data-star-key="${escapeAttr(path)}" data-star-label="${escapeAttr(label)}" title="${isStarred ? 'Remove from overview' : 'Add to overview'}" style="background:none;border:none;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;color:${isStarred ? 'var(--warn)' : 'var(--muted)'}">${isStarred ? '★' : '☆'}</button>`;
+  }
+
   function textField(label, path, value){
     return `
-      <label class="col" style="gap:6px;">
-        <div class="mini">${escapeHtml(label)}</div>
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="display:flex;align-items:center;gap:4px;">${escapeHtml(label)}${fieldStar(path, label)}</div>
         <input type="text" data-text="${escapeHtml(path)}" value="${escapeAttr(String(value ?? ''))}" />
       </label>
     `;
@@ -2923,8 +3154,8 @@ Required structure:
 
   function numField(label, path, value, min){
     return `
-      <label class="col" style="gap:6px;">
-        <div class="mini">${escapeHtml(label)}</div>
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="display:flex;align-items:center;gap:4px;">${escapeHtml(label)}${fieldStar(path, label)}</div>
         <input type="number" data-num="${escapeHtml(path)}" value="${escapeAttr(String(value ?? 0))}"${min != null ? ` min="${min}"` : ''} />
       </label>
     `;
@@ -2932,8 +3163,8 @@ Required structure:
 
   function selectField(label, path, value, options){
     return `
-      <label class="col" style="gap:6px;">
-        <div class="mini">${escapeHtml(label)}</div>
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="display:flex;align-items:center;gap:4px;">${escapeHtml(label)}${fieldStar(path, label)}</div>
         <select data-sel="${escapeHtml(path)}">
           ${options.map(o => `<option value="${escapeAttr(o)}" ${o===value?'selected':''}>${escapeHtml(o)}</option>`).join('')}
         </select>
@@ -2943,8 +3174,8 @@ Required structure:
 
   function textAreaField(label, path, value){
     return `
-      <label class="col" style="gap:6px;">
-        <div class="mini">${escapeHtml(label)}</div>
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="display:flex;align-items:center;gap:4px;">${escapeHtml(label)}${fieldStar(path, label)}</div>
         <textarea data-area="${escapeHtml(path)}">${escapeHtml(String(value ?? ''))}</textarea>
       </label>
     `;
@@ -3191,6 +3422,25 @@ Required structure:
   };
 
   // --- Boot ---
+  // Global handler for field star buttons
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.field-star-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const key = btn.dataset.starKey;
+    const label = btn.dataset.starLabel;
+    const idx = starredFields.findIndex(f => f.key === key);
+    if (idx >= 0) starredFields.splice(idx, 1);
+    else starredFields.push({ key, label });
+    saveStarredFields(starredFields);
+    // Refresh just the star icon without full re-render
+    const isNowStarred = starredFields.some(f => f.key === key);
+    btn.textContent = isNowStarred ? '★' : '☆';
+    btn.style.color = isNowStarred ? 'var(--warn)' : 'var(--muted)';
+    btn.title = isNowStarred ? 'Remove from overview' : 'Add to overview';
+  });
+
   // Run migration (legacy v1 → multi-char) immediately on load
   loadAllChars();
   state = normalize(state);
