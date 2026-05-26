@@ -1718,6 +1718,10 @@ Required structure:
       const hd = obj.hit_dice || {};
       return `${toInt(hd.total, obj.level||1)} / ${hd.die||'d8'}`;
     }
+    if (dotted === '_conditions') {
+      const conds = obj.conditions || [];
+      return conds.length ? conds.join(', ') : 'None';
+    }
     if (dotted === '_spell_dc') {
       const sc = obj.spellcasting || {}; const as2 = obj.ability_scores||{};
       const abilKey2 = (sc.ability||'INT').toLowerCase();
@@ -1753,6 +1757,7 @@ Required structure:
     if (key === 'attacks' || key === 'actions' || key === 'combat_spells') return 'combat';
     if (key.startsWith('resources.') || key.startsWith('features.')) return 'features';
     if (key === '_spell_dc' || key === '_spell_atk') return 'spells';
+    if (key === '_conditions') return 'combat';
     return 'class_race';
   }
 
@@ -2692,6 +2697,7 @@ Required structure:
         <select id="condInputCombat">
           <option value="">— Select condition —</option>
           ${['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'].map(x => `<option value="${x}">${x}</option>`).join('')}
+          <option value="__custom__">Custom...</option>
         </select>
         <button class="btn" id="btnAddCondCombat">Add</button>
       </div>
@@ -2807,8 +2813,13 @@ Required structure:
     };
 
     document.getElementById('btnAddCondCombat').onclick = () => {
-      const v = (document.getElementById('condInputCombat').value || '').trim();
+      let v = (document.getElementById('condInputCombat').value || '').trim();
       if (!v) return;
+      if (v === '__custom__') {
+        const custom = prompt('Enter custom condition:');
+        if (!custom || !custom.trim()) return;
+        v = custom.trim();
+      }
       c.conditions = c.conditions || [];
       if (!c.conditions.includes(v)) c.conditions.push(v);
       document.getElementById('condInputCombat').value = '';
