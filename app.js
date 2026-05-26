@@ -1718,6 +1718,23 @@ Required structure:
       const hd = obj.hit_dice || {};
       return `${toInt(hd.total, obj.level||1)} / ${hd.die||'d8'}`;
     }
+    if (dotted === '_spell_dc') {
+      const sc = obj.spellcasting || {}; const as2 = obj.ability_scores||{};
+      const abilKey2 = (sc.ability||'INT').toLowerCase();
+      const abilMod2 = Math.floor((toInt(as2[abilKey2],10)-10)/2);
+      const prof2 = toInt((obj.combat||{}).proficiency_bonus,2);
+      const bonus2 = toInt(sc.dc_bonus,0);
+      return String(8 + prof2 + abilMod2 + bonus2);
+    }
+    if (dotted === '_spell_atk') {
+      const sc = obj.spellcasting || {}; const as2 = obj.ability_scores||{};
+      const abilKey2 = (sc.ability||'INT').toLowerCase();
+      const abilMod2 = Math.floor((toInt(as2[abilKey2],10)-10)/2);
+      const prof2 = toInt((obj.combat||{}).proficiency_bonus,2);
+      const bonus2 = toInt(sc.atk_bonus,0);
+      const val = prof2 + abilMod2 + bonus2;
+      return (val >= 0 ? '+' : '') + val;
+    }
     if (String(dotted).startsWith('_slot_')) {
       const lvl = toInt(String(dotted).replace('_slot_',''), 1);
       const slots = (obj.spellcasting||{}).spell_slots || [];
@@ -1735,6 +1752,7 @@ Required structure:
     if (key.startsWith('ability_scores.') || key.startsWith('skill_')) return 'stats';
     if (key === 'attacks' || key === 'actions' || key === 'combat_spells') return 'combat';
     if (key.startsWith('resources.') || key.startsWith('features.')) return 'features';
+    if (key === '_spell_dc' || key === '_spell_atk') return 'spells';
     return 'class_race';
   }
 
@@ -2169,10 +2187,10 @@ Required structure:
           <h2>Spellcasting</h2>
           <div class="grid3">
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
-            <label class="col" style="gap:6px;"><div class="mini">Save DC</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
-            ${numField('DC Extra Bonus','spellcasting.dc_bonus', s.dc_bonus ?? 0)}
-            <label class="col" style="gap:6px;"><div class="mini">Attack Bonus</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
-            ${numField('Atk Extra Bonus','spellcasting.atk_bonus', s.atk_bonus ?? 0)}
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
+            <label class="col" style="gap:4px;"><div class="mini">DC Extra Bonus</div><input type="number" data-num="spellcasting.dc_bonus" value="${escapeAttr(String(s.dc_bonus ?? 0))}" /></label>
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Attack Bonus${fieldStar('_spell_atk','Attack Bonus')}</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
+            <label class="col" style="gap:4px;"><div class="mini">Atk Extra Bonus</div><input type="number" data-num="spellcasting.atk_bonus" value="${escapeAttr(String(s.atk_bonus ?? 0))}" /></label>
           </div>
 
           <h2 style="margin-top:14px;">Spell Slots</h2>
@@ -2641,9 +2659,15 @@ Required structure:
           </div>
         </div>
       </div>
-      <div class="grid2">
-        <div class="col">
-          <h2>Attacks / Actions</h2>
+      <div class="grid2" id="combatSectionsGrid">
+        ${c.spellcasting ? `
+        <div id="combatToggleBar" style="grid-column:1/-1; display:none; border-radius:10px; overflow:hidden; border:1px solid var(--line);" class="row">
+          <button id="btnCombatTabAttacks" style="flex:1; padding:10px; border:none; border-radius:0; background:var(--accent); color:#000; font-weight:600; font-size:13px; cursor:pointer;">Attacks</button>
+          <button id="btnCombatTabSpells" style="flex:1; padding:10px; border:none; border-radius:0; background:var(--btn); color:var(--text); font-size:13px; cursor:pointer;">Spells</button>
+        </div>
+        ` : ''}
+        <div class="col" id="combatAttacksCol">
+          <h2>Attacks</h2>
           <div class="mini">Track your bread-and-butter: weapon attacks, cantrip attacks, special actions.</div>
           <div class="list" id="attacksList" style="margin-top:10px;"></div>
           <button class="btn" id="btnAddAttack">Add Attack</button>
@@ -2653,14 +2677,15 @@ Required structure:
           <button class="btn" id="btnAddAction">Add Action</button>
         </div>
 
+        ${c.spellcasting ? `
+        <div class="col" id="combatSpellsCol">
+          <h2>Spells</h2>
+          <div class="mini">Prepared or custom spells ready to cast.</div>
+          <div class="list" id="combatSpellsList" style="margin-top:10px;"></div>
+          <button class="btn" id="btnAddCombatSpell">Add Spell</button>
+        </div>
+        ` : ''}
       </div>
-
-      ${c.spellcasting ? `
-      <h2 style="margin-top:14px;">Spells</h2>
-      <div class="mini">Prepared or custom spells ready to cast.</div>
-      <div class="list" id="combatSpellsList" style="margin-top:10px;"></div>
-      <button class="btn" id="btnAddCombatSpell">Add Spell</button>
-      ` : ''}
 
       <h2 style="margin-top:14px;">Conditions</h2>
       <div class="row" style="margin-top:8px;">
@@ -2703,6 +2728,37 @@ Required structure:
       };
     });
 
+    // Mobile toggle between Attacks/Actions and Spells
+    if (c.spellcasting) {
+      const toggleBar    = document.getElementById('combatToggleBar');
+      const attacksCol   = document.getElementById('combatAttacksCol');
+      const spellsCol    = document.getElementById('combatSpellsCol');
+      const btnAttackTab = document.getElementById('btnCombatTabAttacks');
+      const btnSpellTab  = document.getElementById('btnCombatTabSpells');
+
+      function applyCombatToggle(showSpells) {
+        if (window.innerWidth >= 640) {
+          toggleBar.style.display = 'none';
+          attacksCol.style.display = '';
+          spellsCol.style.display = '';
+        } else {
+          toggleBar.style.display = 'flex';
+          attacksCol.style.display = showSpells ? 'none' : '';
+          spellsCol.style.display  = showSpells ? '' : 'none';
+          btnAttackTab.style.background = showSpells ? 'var(--btn)' : 'var(--accent)';
+          btnAttackTab.style.color      = showSpells ? 'var(--text)' : '#000';
+          btnAttackTab.style.fontWeight = showSpells ? 'normal' : '600';
+          btnSpellTab.style.background  = showSpells ? 'var(--accent)' : 'var(--btn)';
+          btnSpellTab.style.color       = showSpells ? '#000' : 'var(--text)';
+          btnSpellTab.style.fontWeight  = showSpells ? '600' : 'normal';
+        }
+      }
+
+      applyCombatToggle(false);
+      btnAttackTab.onclick = () => applyCombatToggle(false);
+      btnSpellTab.onclick  = () => applyCombatToggle(true);
+    }
+
     $('#btnAddAttack').onclick = () => {
       const strMod = Math.floor((toInt(c.ability_scores?.str, 10) - 10) / 2);
       const profBonus = toInt(c.combat?.proficiency_bonus, 2);
@@ -2711,15 +2767,6 @@ Required structure:
       const equippedWeapons = ((c.inventory || {}).items || [])
         .filter(it => it.type === 'weapon' && it.equipped);
 
-      if (equippedWeapons.length === 0) {
-        // No equipped weapons — just add a blank attack
-        c.attacks = c.attacks || [];
-        c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
-        render();
-        return;
-      }
-
-      // Build a small inline picker above the list
       const existingPicker = document.getElementById('weaponPicker');
       if (existingPicker) { existingPicker.remove(); return; }
 
@@ -2727,12 +2774,15 @@ Required structure:
       picker.id = 'weaponPicker';
       picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
       picker.innerHTML = `
-        <div class="mini" style="font-weight:600;">Add from equipped weapon:</div>
-        ${equippedWeapons.map((w,idx) => `
-          <button class="btn" data-pick="${idx}" style="text-align:left;">
-            ${escapeHtml(w.name)}${w.notes ? ` <span class="muted" style="font-size:0.85em;">(${escapeHtml(w.notes)})</span>` : ''}
-          </button>
-        `).join('')}
+        ${equippedWeapons.length ? `
+          <div class="mini" style="font-weight:600;">Add from equipped weapon:</div>
+          ${equippedWeapons.map((w,idx) => `
+            <button class="btn" data-pick="${idx}" style="text-align:left;">
+              ${escapeHtml(w.name)}${w.notes ? ` <span class="muted" style="font-size:0.85em;">(${escapeHtml(w.notes)})</span>` : ''}
+            </button>
+          `).join('')}
+          <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>
+        ` : ''}
         <button class="btn" id="btnPickManual">+ Manual entry</button>
         <button class="btn danger" id="btnPickCancel">Cancel</button>
       `;
@@ -2789,11 +2839,16 @@ Required structure:
         const picker = document.createElement('div');
         picker.id = 'combatSpellPicker';
         picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
+        const cantrips = (c.spellcasting.cantrips || []);
+        const allSpellOptions = [
+          ...cantrips.map(sp => ({ ...sp, _type: 'cantrip' })),
+          ...preparedSpells.map(sp => ({ ...sp, _type: 'prepared' }))
+        ];
         picker.innerHTML = `
-          ${preparedSpells.length ? `<div class="mini" style="font-weight:600;">Add from prepared spells:</div>
-          ${preparedSpells.map((sp,idx) => `
+          ${allSpellOptions.length ? `<div class="mini" style="font-weight:600;">Add from spells:</div>
+          ${allSpellOptions.map((sp,idx) => `
             <button class="btn" data-pick-spell="${idx}" style="text-align:left;">
-              ${escapeHtml(sp.name)} <span class="muted" style="font-size:0.85em;">Lvl ${sp.level||0}</span>
+              ${escapeHtml(sp.name)} <span class="muted" style="font-size:0.85em;">${sp._type === 'cantrip' ? 'Cantrip' : `Lvl ${sp.level||0}`}</span>
             </button>
           `).join('')}
           <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>` : ''}
@@ -2803,7 +2858,7 @@ Required structure:
         document.getElementById('btnAddCombatSpell').insertAdjacentElement('afterend', picker);
 
         picker.querySelectorAll('[data-pick-spell]').forEach(btn => btn.onclick = () => {
-          const sp = preparedSpells[toInt(btn.dataset.pickSpell, 0)];
+          const sp = allSpellOptions[toInt(btn.dataset.pickSpell, 0)];
           c.combat_spells = c.combat_spells || [];
           c.combat_spells.push({ name: sp.name, level: sp.level || 0, notes: sp.notes || '' });
           picker.remove();
