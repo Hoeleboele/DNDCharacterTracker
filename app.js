@@ -14,6 +14,7 @@
 
   const STORAGE_KEY = 'dndCharTracker.v1';       // legacy single-char key
   const CHARS_KEY   = 'dndCharTracker.chars';     // multi-char store: { name → state }
+  const FAV_TABS_KEY = 'dndCharTracker.favTabs';  // favorited tab IDs (max 3)
 
   // --- Multi-character storage helpers ---
   function loadAllChars(){
@@ -225,6 +226,9 @@ Required structure:
   let state = normalize(newBlank());
   let currentSaveName = null;   // tracks which name key we last saved under
   let activeTab = 'overview';
+  let favTabs = (() => { try { const v = JSON.parse(localStorage.getItem(FAV_TABS_KEY)); return Array.isArray(v) ? v.slice(0,3) : []; } catch(_){ return []; } })();
+  if (!favTabs.length) favTabs = ['overview', 'combat', 'stats'];
+  let tabDrawerOpen = false;
   let menuOpen = false;
 
   // ── Multiplayer ────────────────────────────────────────────────────────────
@@ -626,6 +630,9 @@ Required structure:
   }
 
   function returnToMenu(){
+    const ov = document.getElementById('tabDrawerOverlay');
+    if (ov) ov.remove();
+    tabDrawerOpen = false;
     if (gameMode !== 'host') {
       saveToLocalStorage(); // save locally before leaving
       if (gameMode === 'solo' || gameMode === 'player') {
@@ -1386,6 +1393,15 @@ Required structure:
   }
 
   // --- Rendering ---
+  // Re-render tabs on resize so mobile/desktop layout switches
+  (() => {
+    let _lastMobile = window.innerWidth < 640;
+    window.addEventListener('resize', () => {
+      const mobile = window.innerWidth < 640;
+      if (mobile !== _lastMobile) { _lastMobile = mobile; renderTabs(); }
+    });
+  })();
+
   function render(){
     renderHeader();
     renderTabs();
@@ -1455,83 +1471,212 @@ Required structure:
     // Wire header buttons — none left here
   }
 
+  function saveFavTabs() {
+    try { localStorage.setItem(FAV_TABS_KEY, JSON.stringify(favTabs)); } catch(_){}
+  }
+
+  function renderTabsDesktop(allTabs){
+    $('#tabsCard').innerHTML = `
+      <div style="display:flex; justify-content:center; padding:6px 10px; overflow-x:auto; scrollbar-width:none;">
+        <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
+          ${allTabs.map(t => `
+            <button class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}"
+              style="white-space:nowrap; padding:10px 14px; font-size:14px;">${t.label}</button>
+          `).join('')}
+          <button id="btnMenuToggle" class="tab" style="white-space:nowrap; padding:10px 14px; font-size:14px;">Save to Main Menu</button>
+        </div>
+      </div>
+    `;
+    // Remove any leftover mobile overlay
+    const ov = document.getElementById('tabDrawerOverlay');
+    if (ov) ov.remove();
+    tabDrawerOpen = false;
+
+    $('#tabsCard').querySelectorAll('[data-tab]').forEach(btn => {
+      btn.onclick = () => { activeTab = btn.dataset.tab; renderContent(); renderTabs(); };
+    });
+    document.getElementById('btnMenuToggle').onclick = () => {
+      flashSaveBtn('Saving…', 0);
+      saveToLocalStorage();
+      returnToMenu();
+    };
+  }
+
   function renderTabs(){
     const isCaster = !!state.character.spellcasting;
-    const tabs = [
-      { id:'overview', label:'Overview' },
-      { id:'stats', label:'Stats' },
+    const allTabs = [
+      { id:'overview',   label:'Overview' },
+      { id:'stats',      label:'Stats' },
       { id:'class_race', label:'Character' },
-      { id:'spells', label:'Spells', hide: !isCaster },
-      { id:'combat', label:'Combat' },
-      { id:'inventory', label:'Inventory' },
-      { id:'camp', label:'Camp' },
+      { id:'spells',     label:'Spells', hide: !isCaster },
+      { id:'combat',     label:'Combat' },
+      { id:'inventory',  label:'Inventory' },
+      { id:'camp',       label:'Camp' },
     ].filter(t => !t.hide);
 
-    // If current tab got hidden (e.g., caster -> non-caster), bounce to overview
-    if (!tabs.some(t => t.id === activeTab)) activeTab = 'overview';
+    // If current tab got hidden, bounce to overview
+    if (!allTabs.some(t => t.id === activeTab)) activeTab = 'overview';
+
+    if (window.innerWidth >= 640) return renderTabsDesktop(allTabs);
+
+    // Remove stale favorites (e.g. spells when not a caster)
+    favTabs = favTabs.filter(id => allTabs.some(t => t.id === id));
+
+    const favSet = new Set(favTabs);
+    const visibleTabs = allTabs.filter(t => favSet.has(t.id))
+      .sort((a, b) => favTabs.indexOf(a.id) - favTabs.indexOf(b.id));
 
     $('#tabsCard').innerHTML = `
-      <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
-        <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
-        <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
-          ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}" style="white-space:nowrap;">${t.label}</div>`).join('')}
-          <div class="tab" id="btnMenuToggle" style="white-space:nowrap;">Main Menu</div>
-        </div>
-        <button id="tabScrollRight" class="tab" style="flex-shrink:0;">&#8250;</button>
+      <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center; padding:6px 10px;">
+        ${visibleTabs.map(t => `
+          <button class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}"
+            style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;">${t.label}</button>
+        `).join('')}
+        <button id="btnTabDrawer" class="tab" style="flex-shrink:0; padding:10px 12px; font-size:18px; line-height:1;">&#9776;</button>
       </div>
     `;
 
-    $('#menuPanel').style.display = 'none';
+    // Tab drawer overlay
+    let existing = document.getElementById('tabDrawerOverlay');
+    if (existing) existing.remove();
 
-    const scroller = document.getElementById('tabsScroller');
-    const leftBtn  = document.getElementById('tabScrollLeft');
-    const rightBtn = document.getElementById('tabScrollRight');
+    const overlay = document.createElement('div');
+    overlay.id = 'tabDrawerOverlay';
+    overlay.style.cssText = `
+      position:fixed; inset:0; z-index:19; background:rgba(0,0,0,0);
+      pointer-events:none; transition:background .2s;
+    `;
+    const drawer = document.createElement('div');
+    drawer.id = 'tabDrawer';
+    drawer.style.cssText = `
+      position:absolute; bottom:64px; left:0; right:0;
+      background:var(--panel); border-top:1px solid var(--line);
+      border-radius:18px 18px 0 0; padding:14px 10px 10px;
+      transform:translateY(100%); transition:transform .22s cubic-bezier(.4,0,.2,1);
+      display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+    `;
 
-    function updateArrows(){
-      const canLeft  = scroller.scrollLeft > 1;
-      const canRight = scroller.scrollLeft < scroller.scrollWidth - scroller.clientWidth - 1;
-      leftBtn.style.visibility  = canLeft  ? 'visible' : 'hidden';
-      rightBtn.style.visibility = canRight ? 'visible' : 'hidden';
-    }
-    scroller.addEventListener('scroll', updateArrows);
-    // Wait for layout to be painted before checking overflow
-    requestAnimationFrame(() => requestAnimationFrame(updateArrows));
-    new ResizeObserver(updateArrows).observe(scroller);
+    // Hint label
+    const hint = document.createElement('div');
+    hint.style.cssText = 'grid-column:1/-1; font-size:11px; color:var(--muted); text-align:center; margin-bottom:2px;';
+    hint.textContent = '★ pin up to 3 tabs to the bar';
+    drawer.appendChild(hint);
 
-    leftBtn.onclick  = () => {
-      const scrollerRect = scroller.getBoundingClientRect();
-      const tabs = [...scroller.querySelectorAll('.tab')];
-      // Find the last tab that is partially or fully off the left edge
-      const target = [...tabs].reverse().find(t => t.getBoundingClientRect().left < scrollerRect.left);
-      if (target) {
-        // Scroll so this tab's right edge aligns with the scroller's right edge
-        const targetRect = target.getBoundingClientRect();
-        scroller.scrollLeft += targetRect.right - scrollerRect.right;
-      }
-    };
-    rightBtn.onclick = () => {
-      const scrollerRect = scroller.getBoundingClientRect();
-      const tabs = [...scroller.querySelectorAll('.tab')];
-      // Find the first tab that is partially or fully off the right edge
-      const target = tabs.find(t => t.getBoundingClientRect().right > scrollerRect.right);
-      if (target) {
-        // Scroll so this tab's left edge aligns with the scroller's left edge
-        const targetRect = target.getBoundingClientRect();
-        scroller.scrollLeft += targetRect.left - scrollerRect.left;
-      }
-    };
+    allTabs.forEach(t => {
+      const isFav = favSet.has(t.id);
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative; display:flex;';
 
-    $('#tabsCard').querySelectorAll('.tab').forEach(el => {
-      if (el.id === 'btnMenuToggle' || el.id === 'tabScrollLeft' || el.id === 'tabScrollRight') return;
-      el.onclick = () => { activeTab = el.dataset.tab; renderContent(); renderTabs(); };
+      const btn = document.createElement('button');
+      btn.className = 'tab' + (t.id === activeTab ? ' active' : '');
+      btn.dataset.tab = t.id;
+      btn.style.cssText = 'flex:1; padding:12px 6px 12px 6px; font-size:14px; text-align:center; padding-right:28px;';
+      btn.textContent = t.label;
+
+      const star = document.createElement('button');
+      star.dataset.favBtn = t.id;
+      star.style.cssText = `
+        position:absolute; right:4px; top:50%; transform:translateY(-50%);
+        background:none; border:none; cursor:pointer; font-size:15px; line-height:1;
+        color:${isFav ? 'var(--warn)' : 'var(--muted)'}; padding:4px;
+      `;
+      star.textContent = isFav ? '★' : '☆';
+      star.title = isFav ? 'Unpin from bar' : (favTabs.length >= 3 ? 'Unpin another tab first' : 'Pin to bar');
+
+      wrap.appendChild(btn);
+      wrap.appendChild(star);
+      drawer.appendChild(wrap);
     });
 
-    $('#btnMenuToggle').onclick = () => {
+    // Main Menu button
+    const menuBtn = document.createElement('button');
+    menuBtn.id = 'btnMenuToggle';
+    menuBtn.className = 'tab';
+    menuBtn.textContent = 'Save to Main Menu';
+    menuBtn.style.cssText = 'padding:12px 6px; font-size:14px; grid-column:1/-1;';
+    drawer.appendChild(menuBtn);
+
+    overlay.appendChild(drawer);
+    document.body.appendChild(overlay);
+
+    function openDrawer() {
+      tabDrawerOpen = true;
+      overlay.style.background = 'rgba(0,0,0,.5)';
+      overlay.style.pointerEvents = 'auto';
+      requestAnimationFrame(() => { drawer.style.transform = 'translateY(0)'; });
+    }
+    function closeDrawer() {
+      tabDrawerOpen = false;
+      overlay.style.background = 'rgba(0,0,0,0)';
+      overlay.style.pointerEvents = 'none';
+      drawer.style.transform = 'translateY(100%)';
+    }
+
+    document.getElementById('btnTabDrawer').onclick = (e) => {
+      e.stopPropagation();
+      tabDrawerOpen ? closeDrawer() : openDrawer();
+    };
+
+    overlay.addEventListener('click', (e) => {
+      if (!drawer.contains(e.target)) closeDrawer();
+    });
+
+    // Star toggle handlers
+    drawer.querySelectorAll('[data-fav-btn]').forEach(star => {
+      star.onclick = (e) => {
+        e.stopPropagation();
+        const id = star.dataset.favBtn;
+        if (favTabs.includes(id)) {
+          favTabs = favTabs.filter(x => x !== id);
+        } else if (favTabs.length < 3) {
+          favTabs = [...favTabs, id];
+        } else {
+          // Replace the last favorited tab with the new one
+          favTabs = [...favTabs.slice(0, 2), id];
+        }
+        saveFavTabs();
+        renderTabs();
+        // Re-open drawer after re-render
+        requestAnimationFrame(() => {
+          const newOverlay = document.getElementById('tabDrawerOverlay');
+          const newDrawer  = document.getElementById('tabDrawer');
+          if (newOverlay && newDrawer) {
+            newOverlay.style.background = 'rgba(0,0,0,.5)';
+            newOverlay.style.pointerEvents = 'auto';
+            newDrawer.style.transition = 'none';
+            newDrawer.style.transform = 'translateY(0)';
+            requestAnimationFrame(() => { newDrawer.style.transition = ''; });
+          }
+          tabDrawerOpen = true;
+        });
+      };
+    });
+
+    // Tab navigation handlers
+    drawer.querySelectorAll('[data-tab]').forEach(btn => {
+      btn.onclick = () => {
+        activeTab = btn.dataset.tab;
+        closeDrawer();
+        renderContent();
+        renderTabs();
+      };
+    });
+
+    menuBtn.onclick = () => {
+      closeDrawer();
       flashSaveBtn('Saving…', 0);
       saveToLocalStorage();
       returnToMenu();
     };
 
+    // Wire quick-tab buttons in bar
+    $('#tabsCard').querySelectorAll('[data-tab]').forEach(btn => {
+      btn.onclick = () => {
+        activeTab = btn.dataset.tab;
+        renderContent();
+        renderTabs();
+      };
+    });
   }
 
   function renderContent(){
