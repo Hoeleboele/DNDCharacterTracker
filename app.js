@@ -16,6 +16,11 @@
   const CHARS_KEY   = 'dndCharTracker.chars';     // multi-char store: { name → state }
   const FAV_TABS_KEY = 'dndCharTracker.favTabs';  // favorited tab IDs (max 3)
   const STARRED_FIELDS_KEY = 'dndCharTracker.starred'; // starred fields: [{key,label}]
+  const SETTINGS_KEY = 'dndCharTracker.settings'; // app settings
+
+  function loadAppSettings(){ try { const v = JSON.parse(localStorage.getItem(SETTINGS_KEY)); return Object.assign({ colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true }, v || {}); } catch(_){ return { colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true }; } }
+  function saveAppSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); } catch(_){} }
+  let appSettings = loadAppSettings();
 
   function loadStarredFields(){ try { const v = JSON.parse(localStorage.getItem(STARRED_FIELDS_KEY)); return Array.isArray(v) ? v : []; } catch(_){ return []; } }
   function saveStarredFields(arr){ try { localStorage.setItem(STARRED_FIELDS_KEY, JSON.stringify(arr)); } catch(_){} }
@@ -229,12 +234,27 @@ Required structure:
 }`;
 
   // --- State ---
+  const TAB_COLORS = {
+    overview:   '#94a3b8',  // slate — neutral, "big picture"
+    stats:      '#38bdf8',  // sky blue — numbers, intellect
+    class_race: '#fb923c',  // orange — personal identity
+    features:   '#a3e635',  // lime — class abilities
+    spells:     '#c084fc',  // purple — arcane magic
+    combat:     '#f87171',  // red — danger
+    inventory:  '#fbbf24',  // amber — treasure & items
+    camp:       '#4ade80',  // green — rest & nature
+    settings:   '#7cc0ff',  // accent blue — UI
+  };
+  function tabRgb(id){ if (!appSettings.colorMode) return '124,192,255'; const h=TAB_COLORS[id]||'#7cc0ff'; return `${parseInt(h.slice(1,3),16)},${parseInt(h.slice(3,5),16)},${parseInt(h.slice(5,7),16)}`; }
+
   let state = normalize(newBlank());
   let currentSaveName = null;   // tracks which name key we last saved under
   let activeTab = 'overview';
   let favTabs = (() => { try { const v = JSON.parse(localStorage.getItem(FAV_TABS_KEY)); return Array.isArray(v) ? v.slice(0,4) : []; } catch(_){ return []; } })();
   if (!favTabs.length) favTabs = ['overview', 'combat', 'stats'];
   let tabDrawerOpen = false;
+  let combatShowSpells = false;
+  let tutorialSeenTabs = new Set();
   let menuOpen = false;
 
   // ── Multiplayer ────────────────────────────────────────────────────────────
@@ -351,6 +371,225 @@ Required structure:
     document.getElementById('btnHost').onclick = startHost;
     document.getElementById('btnChooseChar').onclick = () => showCharPicker();
     updateAuthBar();
+
+    if (appSettings.showTutorial) showTutorial();
+  }
+
+  function showTutorial(context) {
+    const existing = document.getElementById('tutorialOverlay');
+    if (existing) existing.remove();
+
+    // Auto-detect context: 'landing' or 'app'
+    if (!context) {
+      const appEl = document.querySelector('.app');
+      context = (appEl && appEl.style.display !== 'none') ? 'app' : 'landing';
+    }
+
+    const landingSteps = [
+      { target: null, pos: 'center',
+        title: '⚔️ Welcome to DnD Character Tracker',
+        body: 'This quick tour shows you where everything is. Use the arrows to step through, or press ✕ to skip.' },
+      { target: '#btnChooseChar', pos: 'bottom',
+        title: '👤 Choose a Character',
+        body: 'Click here to load an existing character or create a new one. You can also import from a JSON share code.' },
+      { target: '#btnHost', pos: 'bottom',
+        title: '🎮 Host a Game',
+        body: 'Start a multiplayer session. Players can connect with a room code and you can view their sheets in real time.' },
+      { target: '#landingAuthBar', pos: 'top',
+        title: '☁️ Cloud Sync',
+        body: 'Sign in with Google to sync your characters across devices. All saves are also stored locally so the app works offline.' },
+    ];
+
+    const appSteps = [
+      { target: '#headerCard', pos: 'bottom',
+        title: '📋 Character Header',
+        body: 'Your key stats — HP, AC, Speed, Initiative and Passive Perception — are always visible here at the top.' },
+      { target: '#tabsCard', pos: 'top',
+        title: '🗂️ Tab Bar',
+        body: 'Switch between sections here. On mobile tap <b>☰</b> to open the full drawer and <b>★</b> to pin your favourite tabs to the quick bar.<br><br>Open any tab to get a quick tip about what it does.' },
+    ];
+
+    const steps = context === 'app' ? appSteps : landingSteps;
+    let step = 0;
+
+    // ── DOM structure ──────────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    overlay.id = 'tutorialOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:500;pointer-events:none;';
+
+    // SVG spotlight layer
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svgEl = document.createElementNS(svgNS, 'svg');
+    svgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+
+    // Click blocker (dims area but allows tooltip interaction)
+    const blocker = document.createElement('div');
+    blocker.style.cssText = 'position:absolute;inset:0;pointer-events:auto;';
+
+    // Tooltip card
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = `
+      position:fixed; z-index:501; pointer-events:auto;
+      max-width:320px; width:calc(100vw - 32px);
+      background:var(--panel); border:1px solid rgba(124,192,255,0.4);
+      border-radius:var(--radius); padding:16px 16px 12px;
+      box-shadow:0 16px 48px rgba(0,0,0,.7), 0 0 0 1px rgba(124,192,255,0.15);
+    `;
+
+    overlay.appendChild(svgEl);
+    overlay.appendChild(blocker);
+    overlay.appendChild(tooltip);
+
+    // ── Spotlight renderer ─────────────────────────────────────────────────
+    function updateSpotlight(rect) {
+      svgEl.innerHTML = '';
+      const W = window.innerWidth, H = window.innerHeight;
+
+      if (!rect) {
+        const dim = document.createElementNS(svgNS, 'rect');
+        dim.setAttribute('width', W); dim.setAttribute('height', H);
+        dim.setAttribute('fill', 'rgba(0,0,0,0.68)');
+        svgEl.appendChild(dim);
+        return;
+      }
+
+      const PAD = 10, R = 10;
+      const x = Math.round(rect.left - PAD), y = Math.round(rect.top - PAD);
+      const w = Math.round(rect.width + PAD * 2), h = Math.round(rect.height + PAD * 2);
+
+      const defs  = document.createElementNS(svgNS, 'defs');
+      const mask  = document.createElementNS(svgNS, 'mask');
+      mask.id = 'tut-mask';
+      const mbg   = document.createElementNS(svgNS, 'rect');
+      mbg.setAttribute('width', W); mbg.setAttribute('height', H); mbg.setAttribute('fill', 'white');
+      const mhole = document.createElementNS(svgNS, 'rect');
+      mhole.setAttribute('x', x); mhole.setAttribute('y', y);
+      mhole.setAttribute('width', w); mhole.setAttribute('height', h);
+      mhole.setAttribute('rx', R); mhole.setAttribute('fill', 'black');
+      mask.appendChild(mbg); mask.appendChild(mhole); defs.appendChild(mask);
+      svgEl.appendChild(defs);
+
+      const dim = document.createElementNS(svgNS, 'rect');
+      dim.setAttribute('width', W); dim.setAttribute('height', H);
+      dim.setAttribute('fill', 'rgba(0,0,0,0.68)');
+      dim.setAttribute('mask', 'url(#tut-mask)');
+      svgEl.appendChild(dim);
+
+      const ring = document.createElementNS(svgNS, 'rect');
+      ring.setAttribute('x', x); ring.setAttribute('y', y);
+      ring.setAttribute('width', w); ring.setAttribute('height', h);
+      ring.setAttribute('rx', R); ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', 'rgba(124,192,255,0.75)');
+      ring.setAttribute('stroke-width', '2');
+      svgEl.appendChild(ring);
+    }
+
+    // ── Tooltip positioner ─────────────────────────────────────────────────
+    function positionTooltip(rect, pos, arrowContainer) {
+      const TW = Math.min(320, window.innerWidth - 32);
+      const TH_EST = 230; // estimated tooltip height for clamping
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const PAD = 10;
+      tooltip.style.maxWidth = TW + 'px';
+      ['top','bottom','left','right','transform'].forEach(p => tooltip.style.removeProperty(p));
+      arrowContainer.innerHTML = '';
+
+      if (!rect || pos === 'center') {
+        tooltip.style.top = '50%';
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translate(-50%,-50%)';
+        return;
+      }
+
+      let left = Math.round(rect.left + rect.width / 2 - TW / 2);
+      left = Math.max(PAD, Math.min(left, vw - TW - PAD));
+      const arrowOff = Math.max(16, Math.min(TW - 16, Math.round(rect.left + rect.width / 2) - left));
+
+      // Flip side if not enough room
+      let actualPos = pos;
+      if (pos === 'bottom' && rect.bottom + 14 + TH_EST > vh - PAD) actualPos = 'top';
+      if (pos === 'top'    && rect.top  - 14 - TH_EST < PAD)         actualPos = 'bottom';
+
+      let topPx;
+      if (actualPos === 'bottom') {
+        topPx = Math.max(PAD, Math.min(Math.round(rect.bottom + 14), vh - TH_EST - PAD));
+        arrowContainer.innerHTML = `
+          <div style="position:absolute;top:-8px;left:${arrowOff}px;transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:9px solid rgba(124,192,255,0.4);"></div>
+          <div style="position:absolute;top:-6px;left:${arrowOff}px;transform:translateX(-50%);width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:8px solid var(--panel);"></div>`;
+      } else {
+        topPx = Math.max(PAD, Math.round(rect.top - TH_EST - 14));
+        arrowContainer.innerHTML = `
+          <div style="position:absolute;bottom:-8px;left:${arrowOff}px;transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-top:9px solid rgba(124,192,255,0.4);"></div>
+          <div style="position:absolute;bottom:-6px;left:${arrowOff}px;transform:translateX(-50%);width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:8px solid var(--panel);"></div>`;
+      }
+      tooltip.style.top  = topPx + 'px';
+      tooltip.style.left = left + 'px';
+    }
+
+    // ── Step renderer ──────────────────────────────────────────────────────
+    function renderStep() {
+      const s = steps[step];
+      if (s.before) s.before();
+
+      const targetEl = s.target ? document.querySelector(s.target) : null;
+      const rect = targetEl ? targetEl.getBoundingClientRect() : null;
+
+      updateSpotlight(rect);
+
+      const dots = steps.map((_, i) =>
+        `<div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;
+          background:${i === step ? 'var(--accent)' : 'rgba(255,255,255,0.18)'};
+          transition:background .2s;"></div>`
+      ).join('');
+
+      tooltip.innerHTML = `
+        <div id="tutArrow" style="position:absolute;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:8px;">
+          <div style="font-size:14px;font-weight:700;line-height:1.3;">${s.title}</div>
+          <button id="btnTutClose" style="background:none;border:none;cursor:pointer;font-size:17px;color:var(--muted);line-height:1;flex-shrink:0;padding:0;">✕</button>
+        </div>
+        <div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:12px;">${s.body}</div>
+        <div style="display:flex;justify-content:center;gap:5px;margin-bottom:12px;">${dots}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="btnTutPrev" class="btn" style="padding:6px 14px;font-size:12px;${step===0?'visibility:hidden;':''}">← Back</button>
+          <div style="flex:1;text-align:center;font-size:11px;color:var(--muted);">${step+1} / ${steps.length}</div>
+          ${step === steps.length - 1
+            ? `<button id="btnTutDone" class="btn" style="padding:6px 16px;font-size:12px;background:rgba(124,192,255,0.15);border-color:var(--accent);color:var(--accent);">Done ✓</button>`
+            : `<button id="btnTutNext" class="btn" style="padding:6px 16px;font-size:12px;background:rgba(124,192,255,0.15);border-color:var(--accent);color:var(--accent);">Next →</button>`
+          }
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:9px;">
+          <input type="checkbox" id="chkDontShow" ${!appSettings.showTutorial?'checked':''} style="cursor:pointer;">
+          <span style="font-size:11px;color:var(--muted);">Don't show on startup</span>
+        </label>
+      `;
+
+      const arrowContainer = tooltip.querySelector('#tutArrow');
+      positionTooltip(rect, s.pos, arrowContainer);
+
+      tooltip.querySelector('#btnTutClose').onclick = close;
+      const prev = tooltip.querySelector('#btnTutPrev');
+      if (prev) prev.onclick = () => { step--; renderStep(); };
+      const next = tooltip.querySelector('#btnTutNext');
+      if (next) next.onclick = () => { step++; renderStep(); };
+      const done = tooltip.querySelector('#btnTutDone');
+      if (done) done.onclick = close;
+      tooltip.querySelector('#chkDontShow').onchange = (e) => {
+        appSettings.showTutorial = !e.target.checked;
+        saveAppSettings();
+      };
+    }
+
+    function close() {
+      overlay.remove();
+      window.removeEventListener('resize', onResize);
+    }
+
+    function onResize() { renderStep(); }
+    window.addEventListener('resize', onResize);
+
+    document.body.appendChild(overlay);
+    renderStep();
   }
 
   function charCloudBadge(name, charState) {
@@ -544,10 +783,12 @@ Required structure:
 
   function startSolo(){
     gameMode = 'solo';
+    tutorialSeenTabs = new Set();
     document.getElementById('landingOverlay').style.display = 'none';
     document.querySelector('.app').style.display = '';
     startAutosave();
     render();
+    if (appSettings.showAppTutorial) setTimeout(() => showTutorial('app'), 300);
   }
 
   function startHost(){
@@ -638,10 +879,12 @@ Required structure:
   function returnToMenu(){
     const ov = document.getElementById('tabDrawerOverlay');
     if (ov) ov.remove();
+    const notch = document.getElementById('tabTitleNotch');
+    if (notch) notch.remove();
     tabDrawerOpen = false;
     if (gameMode !== 'host') {
       saveToLocalStorage(); // save locally before leaving
-      if (gameMode === 'solo' || gameMode === 'player') {
+      if (appSettings.cloudSaveOnExit && (gameMode === 'solo' || gameMode === 'player')) {
         saveCharToCloud(state, null); // fire-and-forget cloud sync
       }
     }
@@ -1362,11 +1605,12 @@ Required structure:
 
   function startAutosave(){
     stopAutosave();
+    if (!appSettings.autosaveMs) return; // autosave disabled
     autosaveInterval = setInterval(() => {
       flashSaveBtn('Saving…', 0);
       const ok = saveToLocalStorage();
       flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
-    }, 30000);
+    }, appSettings.autosaveMs);
   }
 
   function stopAutosave(){
@@ -1475,32 +1719,142 @@ Required structure:
       flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     };
 
-    // Wire header buttons — none left here
+    // Apply tab color glow to header card
+    const headerCard = document.getElementById('headerCard');
+    if (headerCard) {
+      const rgb = tabRgb(activeTab);
+      headerCard.style.border = `1px solid rgba(${rgb},${appSettings.cardGlow ? '0.65' : '0.2'})`;
+      headerCard.style.boxShadow = appSettings.cardGlow
+        ? `0 14px 30px rgba(0,0,0,.35), 0 0 0 1px rgba(${rgb},0.25), 0 0 28px rgba(${rgb},0.35)`
+        : `0 14px 30px rgba(0,0,0,.35)`;
+    }
   }
 
   function saveFavTabs() {
     try { localStorage.setItem(FAV_TABS_KEY, JSON.stringify(favTabs)); } catch(_){}
   }
 
+  // Per-tab tips shown once per session when a tab is first opened
+  const TAB_TIPS = {
+    overview:   { title: '⭐ Overview',    body: 'This tab shows all your starred fields. Click the <b>☆</b> icon next to any field label in the app to pin it here.' },
+    stats:      { title: '🎲 Stats',       body: 'Track your ability scores, saving throws, and skill proficiencies. Proficiencies are marked with a dot.' },
+    class_race: { title: '👤 Character',   body: 'Set your identity, manage HP, configure spellcasting, and edit proficiencies and languages.' },
+    features:   { title: '🌿 Features',    body: 'Manage class features and limited-use resources like Channel Divinity or Ki Points. Reset them on a short or long rest.' },
+    spells:     { title: '✨ Spells',       body: 'Track spell slots, prepared spells, and cantrips. Your Save DC and Attack Bonus are calculated automatically.' },
+    combat:     { title: '⚔️ Combat',      body: 'Track HP, death saves, attacks and conditions. Casters also get a Spells panel — use the toggle on mobile to switch between them.' },
+    inventory:  { title: '🎒 Inventory',   body: 'Manage items, equipment, and currency. Mark items as equipped to track what your character is carrying.' },
+    camp:       { title: '🏕️ Camp',        body: 'Take a Short or Long Rest to recover HP, spend hit dice, and reset your resources and spell slots.' },
+    settings:   { title: '⚙️ Settings',    body: 'Customise tab colors, card glow, autosave interval, cloud sync, and tutorial preferences.' },
+  };
+
+  function switchTab(id) {
+    activeTab = id;
+    renderContent();
+    renderTabs();
+    if (appSettings.showAppTutorial && !tutorialSeenTabs.has(id)) {
+      tutorialSeenTabs.add(id);
+      const tip = TAB_TIPS[id];
+      if (tip) setTimeout(() => showTabTip(tip.title, tip.body, id), 120);
+    }
+  }
+
+  function showTabTip(title, body, tabId) {
+    const existing = document.getElementById('tabTipCard');
+    if (existing) existing.remove();
+    if (document.getElementById('tutorialOverlay')) return;
+    const tabsCard = document.getElementById('tabsCard');
+    if (!tabsCard) return;
+    const tabsRect = tabsCard.getBoundingClientRect();
+    const rgb = tabRgb(tabId);
+    const bottomOffset = Math.round(window.innerHeight - tabsRect.top) + 8;
+    const tip = document.createElement('div');
+    tip.id = 'tabTipCard';
+    tip.style.cssText = `
+      position:fixed; z-index:400;
+      left:12px; right:12px;
+      bottom:${bottomOffset}px;
+      background:var(--panel);
+      border:1px solid rgba(${rgb},0.7);
+      border-top:3px solid rgba(${rgb},1);
+      border-radius:var(--radius);
+      padding:12px 14px 12px 14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.65), 0 0 0 1px rgba(${rgb},0.2);
+      display:flex; align-items:flex-start; gap:10px;
+      animation:tabTipIn .22s ease;
+      pointer-events:auto;
+    `;
+    tip.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:5px;color:rgba(${rgb},1);">${title}</div>
+        <div style="font-size:13px;line-height:1.6;color:var(--text);">${body}</div>
+      </div>
+      <button id="btnTabTipClose" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted);line-height:1;flex-shrink:0;padding:0 2px;margin-top:-2px;">✕</button>
+    `;
+    document.body.appendChild(tip);
+    if (!document.getElementById('tabTipStyle')) {
+      const s = document.createElement('style');
+      s.id = 'tabTipStyle';
+      s.textContent = '@keyframes tabTipIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}';
+      document.head.appendChild(s);
+    }
+    const dismiss = () => { tip.style.opacity = '0'; tip.style.transition = 'opacity .18s'; setTimeout(() => tip.remove(), 180); };
+    document.getElementById('btnTabTipClose').onclick = dismiss;
+    setTimeout(dismiss, 10000);
+  }
+
+  function renderTabNotch(label, aRgb) {
+    const old = document.getElementById('tabTitleNotch');
+    if (old) old.remove();
+    const tabsCard = document.getElementById('tabsCard');
+    if (!tabsCard) return;
+    const h = tabsCard.offsetHeight;
+    const notch = document.createElement('div');
+    notch.id = 'tabTitleNotch';
+    notch.textContent = label;
+    notch.style.cssText = `
+      position:fixed; bottom:${h}px; left:50%; transform:translateX(-50%);
+      z-index:21; white-space:nowrap;
+      background:var(--panel);
+      border:1px solid rgba(${aRgb},0.5);
+      border-bottom:none;
+      border-radius:8px 8px 0 0;
+      padding:3px 14px 4px;
+      font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
+      color:rgba(${aRgb},1);
+      pointer-events:none;
+      transition:bottom .22s cubic-bezier(.4,0,.2,1);
+    `;
+    document.body.appendChild(notch);
+  }
+
   function renderTabsDesktop(allTabs){
+    const activeLabel = (allTabs.find(t => t.id === activeTab) || {}).label || '';
+    const aRgb = tabRgb(activeTab);
     $('#tabsCard').innerHTML = `
       <div style="display:flex; justify-content:center; padding:6px 10px; overflow-x:auto; scrollbar-width:none;">
         <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
-          ${allTabs.map(t => `
-            <button class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}"
-              style="white-space:nowrap; padding:10px 14px; font-size:14px;">${t.label}</button>
-          `).join('')}
+          ${allTabs.map(t => {
+            const rgb = tabRgb(t.id);
+            const isActive = t.id === activeTab;
+            return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
+              style="white-space:nowrap; padding:10px 14px; font-size:14px;
+                color:rgba(${rgb},1);
+                ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
+            >${t.label}</button>`;
+          }).join('')}
           <button id="btnMenuToggle" class="tab" style="white-space:nowrap; padding:10px 14px; font-size:14px;">Save to Main Menu</button>
         </div>
       </div>
     `;
+    $('#tabsCard').style.background = `rgba(${aRgb},0.06)`;
+    renderTabNotch(activeLabel, aRgb);
     // Remove any leftover mobile overlay
     const ov = document.getElementById('tabDrawerOverlay');
     if (ov) ov.remove();
     tabDrawerOpen = false;
 
     $('#tabsCard').querySelectorAll('[data-tab]').forEach(btn => {
-      btn.onclick = () => { activeTab = btn.dataset.tab; renderContent(); renderTabs(); };
+      btn.onclick = () => switchTab(btn.dataset.tab);
     });
     document.getElementById('btnMenuToggle').onclick = () => {
       flashSaveBtn('Saving…', 0);
@@ -1520,6 +1874,7 @@ Required structure:
       { id:'combat',     label:'Combat' },
       { id:'inventory',  label:'Inventory' },
       { id:'camp',       label:'Camp' },
+      { id:'settings',   label:'Settings' },
     ].filter(t => !t.hide);
 
     // If current tab got hidden, bounce to overview
@@ -1534,15 +1889,24 @@ Required structure:
     const visibleTabs = allTabs.filter(t => favSet.has(t.id))
       .sort((a, b) => favTabs.indexOf(a.id) - favTabs.indexOf(b.id));
 
+    const activeLabel = (allTabs.find(t => t.id === activeTab) || {}).label || '';
+    const aRgbM = tabRgb(activeTab);
     $('#tabsCard').innerHTML = `
       <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center; padding:6px 10px;">
-        ${visibleTabs.map(t => `
-          <button class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}"
-            style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;">${t.label}</button>
-        `).join('')}
+        ${visibleTabs.map(t => {
+          const rgb = tabRgb(t.id);
+          const isActive = t.id === activeTab;
+          return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
+            style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;
+              color:rgba(${rgb},1);
+              ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
+          >${t.label}</button>`;
+        }).join('')}
         <button id="btnTabDrawer" class="tab" style="flex-shrink:0; padding:10px 12px; font-size:18px; line-height:1;">&#9776;</button>
       </div>
     `;
+    $('#tabsCard').style.background = `rgba(${aRgbM},0.06)`;
+    renderTabNotch(activeLabel, aRgbM);
 
     // Tab drawer overlay
     let existing = document.getElementById('tabDrawerOverlay');
@@ -1556,8 +1920,9 @@ Required structure:
     `;
     const drawer = document.createElement('div');
     drawer.id = 'tabDrawer';
+    const tabBarH = (document.getElementById('tabsCard') || {}).offsetHeight || 64;
     drawer.style.cssText = `
-      position:absolute; bottom:64px; left:0; right:0;
+      position:absolute; bottom:${tabBarH}px; left:0; right:0;
       background:var(--panel); border-top:1px solid var(--line);
       border-radius:18px 18px 0 0; padding:14px 10px 10px;
       transform:translateY(100%); transition:transform .22s cubic-bezier(.4,0,.2,1);
@@ -1578,8 +1943,14 @@ Required structure:
       const btn = document.createElement('button');
       btn.className = 'tab' + (t.id === activeTab ? ' active' : '');
       btn.dataset.tab = t.id;
-      btn.style.cssText = 'flex:1; padding:12px 6px 12px 6px; font-size:14px; text-align:center; padding-right:28px;';
+      const bRgb = tabRgb(t.id);
+      const isActive = t.id === activeTab;
+      btn.style.cssText = `flex:1; padding:12px 6px 12px 6px; font-size:14px; text-align:center; padding-right:28px;
+        color:rgba(${bRgb},1);
+        ${isActive ? `border-color:rgba(${bRgb},0.6); background:rgba(${bRgb},0.12);` : `border-color:rgba(${bRgb},0.2);`}`;
       btn.textContent = t.label;
+
+      if (t.id === 'settings') { wrap.appendChild(btn); drawer.appendChild(wrap); return; }
 
       const star = document.createElement('button');
       star.dataset.favBtn = t.id;
@@ -1611,13 +1982,19 @@ Required structure:
       tabDrawerOpen = true;
       overlay.style.background = 'rgba(0,0,0,.5)';
       overlay.style.pointerEvents = 'auto';
-      requestAnimationFrame(() => { drawer.style.transform = 'translateY(0)'; });
+      requestAnimationFrame(() => {
+        drawer.style.transform = 'translateY(0)';
+        const notch = document.getElementById('tabTitleNotch');
+        if (notch) notch.style.bottom = (tabBarH + drawer.offsetHeight) + 'px';
+      });
     }
     function closeDrawer() {
       tabDrawerOpen = false;
       overlay.style.background = 'rgba(0,0,0,0)';
       overlay.style.pointerEvents = 'none';
       drawer.style.transform = 'translateY(100%)';
+      const notch = document.getElementById('tabTitleNotch');
+      if (notch) notch.style.bottom = tabBarH + 'px';
     }
 
     document.getElementById('btnTabDrawer').onclick = (e) => {
@@ -1663,10 +2040,8 @@ Required structure:
     // Tab navigation handlers
     drawer.querySelectorAll('[data-tab]').forEach(btn => {
       btn.onclick = () => {
-        activeTab = btn.dataset.tab;
         closeDrawer();
-        renderContent();
-        renderTabs();
+        switchTab(btn.dataset.tab);
       };
     });
 
@@ -1679,24 +2054,36 @@ Required structure:
 
     // Wire quick-tab buttons in bar
     $('#tabsCard').querySelectorAll('[data-tab]').forEach(btn => {
-      btn.onclick = () => {
-        activeTab = btn.dataset.tab;
-        renderContent();
-        renderTabs();
-      };
+      btn.onclick = () => switchTab(btn.dataset.tab);
     });
   }
 
   function renderContent(){
     const c = state.character;
-    if (activeTab === 'overview') return renderOverview(c);
-    if (activeTab === 'stats') return renderStats(c);
-    if (activeTab === 'class_race') return renderCharacter(c);
-    if (activeTab === 'features') return renderFeatures(c);
-    if (activeTab === 'spells') return renderSpells(c);
-    if (activeTab === 'combat') return renderCombat(c);
-    if (activeTab === 'inventory') return renderInventory(c);
-    if (activeTab === 'camp') return renderCamp(c);
+    if (activeTab === 'overview') renderOverview(c);
+    else if (activeTab === 'stats') renderStats(c);
+    else if (activeTab === 'class_race') renderCharacter(c);
+    else if (activeTab === 'features') renderFeatures(c);
+    else if (activeTab === 'spells') renderSpells(c);
+    else if (activeTab === 'combat') renderCombat(c);
+    else if (activeTab === 'inventory') renderInventory(c);
+    else if (activeTab === 'camp') renderCamp(c);
+    else if (activeTab === 'settings') renderSettings();
+    const rgb = tabRgb(activeTab);
+    const card = document.getElementById('contentCard');
+    if (card) {
+      card.style.border = `1px solid rgba(${rgb},${appSettings.cardGlow ? '0.65' : '0.2'})`;
+      card.style.boxShadow = appSettings.cardGlow
+        ? `0 14px 30px rgba(0,0,0,.35), 0 0 0 1px rgba(${rgb},0.25), 0 0 28px rgba(${rgb},0.35)`
+        : `0 14px 30px rgba(0,0,0,.35)`;
+    }
+    const headerCard = document.getElementById('headerCard');
+    if (headerCard) {
+      headerCard.style.border = `1px solid rgba(${rgb},${appSettings.cardGlow ? '0.65' : '0.2'})`;
+      headerCard.style.boxShadow = appSettings.cardGlow
+        ? `0 14px 30px rgba(0,0,0,.35), 0 0 0 1px rgba(${rgb},0.25), 0 0 28px rgba(${rgb},0.35)`
+        : `0 14px 30px rgba(0,0,0,.35)`;
+    }
   }
 
   function getPath(obj, dotted){
@@ -2207,10 +2594,10 @@ Required structure:
           <h2>Spellcasting</h2>
           <div class="grid3">
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
-            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}</div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
-            <label class="col" style="gap:4px;"><div class="mini">DC Extra Bonus</div><input type="number" data-num="spellcasting.dc_bonus" value="${escapeAttr(String(s.dc_bonus ?? 0))}" /></label>
-            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Attack Bonus${fieldStar('_spell_atk','Attack Bonus')}</div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
-            <label class="col" style="gap:4px;"><div class="mini">Atk Extra Bonus</div><input type="number" data-num="spellcasting.atk_bonus" value="${escapeAttr(String(s.atk_bonus ?? 0))}" /></label>
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}<button id="btnDcToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
+            <div id="dcBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">DC Extra Bonus</div><input type="number" data-num="spellcasting.dc_bonus" value="${escapeAttr(String(s.dc_bonus ?? 0))}" /></label></div>
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Attack Bonus${fieldStar('_spell_atk','Attack Bonus')}<button id="btnAtkToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
+            <div id="atkBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">Atk Extra Bonus</div><input type="number" data-num="spellcasting.atk_bonus" value="${escapeAttr(String(s.atk_bonus ?? 0))}" /></label></div>
           </div>
 
           <h2 style="margin-top:14px;">Spell Slots</h2>
@@ -2253,6 +2640,19 @@ Required structure:
     if (dcBonusInp) dcBonusInp.oninput = () => { s.dc_bonus = toInt(dcBonusInp.value, 0); render(); };
     const atkBonusInp = $('#contentCard').querySelector('[data-num="spellcasting.atk_bonus"]');
     if (atkBonusInp) atkBonusInp.oninput = () => { s.atk_bonus = toInt(atkBonusInp.value, 0); render(); };
+
+    document.getElementById('btnDcToggle').onclick = () => {
+      const f = document.getElementById('dcBonusField');
+      const open = f.style.display === 'none';
+      f.style.display = open ? '' : 'none';
+      document.getElementById('btnDcToggle').textContent = open ? '▲ bonus' : '▾ bonus';
+    };
+    document.getElementById('btnAtkToggle').onclick = () => {
+      const f = document.getElementById('atkBonusField');
+      const open = f.style.display === 'none';
+      f.style.display = open ? '' : 'none';
+      document.getElementById('btnAtkToggle').textContent = open ? '▲ bonus' : '▾ bonus';
+    };
 
     // Re-render when ability changes so DC/attack bonus update immediately
     const abilitySel = $('#contentCard').querySelector('[data-sel="spellcasting.ability"]');
@@ -2775,9 +3175,9 @@ Required structure:
         }
       }
 
-      applyCombatToggle(false);
-      btnAttackTab.onclick = () => applyCombatToggle(false);
-      btnSpellTab.onclick  = () => applyCombatToggle(true);
+      applyCombatToggle(combatShowSpells);
+      btnAttackTab.onclick = () => { combatShowSpells = false; applyCombatToggle(false); };
+      btnSpellTab.onclick  = () => { combatShowSpells = true;  applyCombatToggle(true); };
     }
 
     $('#btnAddAttack').onclick = () => {
@@ -3256,6 +3656,174 @@ Required structure:
     };
 
     wireTextAreaFields('#contentCard');
+  }
+
+  function renderSettings(){
+    const rgb = tabRgb('settings');
+    const autosaveOptions = [
+      { label: '15 seconds', ms: 15000 },
+      { label: '30 seconds', ms: 30000 },
+      { label: '2 minutes',  ms: 120000 },
+      { label: '5 minutes',  ms: 300000 },
+      { label: 'Off',        ms: 0 },
+    ];
+
+    $('#contentCard').innerHTML = `
+      <h2>Settings</h2>
+
+      <div class="col" style="gap:20px; max-width:480px;">
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Tab Color Mode</div>
+          <div class="mini muted" style="margin-bottom:4px;">When enabled, each tab has its own color for buttons, borders, and glows. When disabled, the default blue accent color is used everywhere.</div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <div id="colorModeToggle" style="
+              position:relative; width:44px; height:24px; border-radius:12px; flex-shrink:0;
+              background:${appSettings.colorMode ? `rgba(${rgb},0.85)` : 'var(--line)'};
+              border:1px solid rgba(255,255,255,0.1);
+              transition:background .2s;
+              cursor:pointer;
+            ">
+              <div style="
+                position:absolute; top:3px; left:${appSettings.colorMode ? '22px' : '3px'};
+                width:16px; height:16px; border-radius:50%;
+                background:#fff; transition:left .2s;
+              "></div>
+            </div>
+            <span style="font-size:14px;">${appSettings.colorMode ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Card Glow</div>
+          <div class="mini muted" style="margin-bottom:4px;">Adds a colored glow to the borders of the header and content cards matching the active tab color.</div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <div id="cardGlowToggle" style="
+              position:relative; width:44px; height:24px; border-radius:12px; flex-shrink:0;
+              background:${appSettings.cardGlow ? `rgba(${rgb},0.85)` : 'var(--line)'};
+              border:1px solid rgba(255,255,255,0.1);
+              transition:background .2s;
+              cursor:pointer;
+            ">
+              <div style="
+                position:absolute; top:3px; left:${appSettings.cardGlow ? '22px' : '3px'};
+                width:16px; height:16px; border-radius:50%;
+                background:#fff; transition:left .2s;
+              "></div>
+            </div>
+            <span style="font-size:14px;">${appSettings.cardGlow ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Cloud Save on Exit</div>
+          <div class="mini muted" style="margin-bottom:4px;">When enabled, your character is synced to the cloud every time you return to the main menu.</div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <div id="cloudSaveToggle" style="
+              position:relative; width:44px; height:24px; border-radius:12px; flex-shrink:0;
+              background:${appSettings.cloudSaveOnExit ? `rgba(${rgb},0.85)` : 'var(--line)'};
+              border:1px solid rgba(255,255,255,0.1);
+              transition:background .2s;
+              cursor:pointer;
+            ">
+              <div style="
+                position:absolute; top:3px; left:${appSettings.cloudSaveOnExit ? '22px' : '3px'};
+                width:16px; height:16px; border-radius:50%;
+                background:#fff; transition:left .2s;
+              "></div>
+            </div>
+            <span style="font-size:14px;">${appSettings.cloudSaveOnExit ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Tutorial on Landing Startup</div>
+          <div class="mini muted" style="margin-bottom:4px;">Show the landing page tutorial each time you open the app.</div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <div id="tutorialToggle" style="
+              position:relative; width:44px; height:24px; border-radius:12px; flex-shrink:0;
+              background:${appSettings.showTutorial ? `rgba(${rgb},0.85)` : 'var(--line)'};
+              border:1px solid rgba(255,255,255,0.1); transition:background .2s; cursor:pointer;
+            ">
+              <div style="position:absolute; top:3px; left:${appSettings.showTutorial ? '22px' : '3px'};
+                width:16px; height:16px; border-radius:50%; background:#fff; transition:left .2s;"></div>
+            </div>
+            <span style="font-size:14px;">${appSettings.showTutorial ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Tutorial after Character Load</div>
+          <div class="mini muted" style="margin-bottom:4px;">Automatically show the in-app tutorial guide each time you load a character.</div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <div id="appTutorialToggle" style="
+              position:relative; width:44px; height:24px; border-radius:12px; flex-shrink:0;
+              background:${appSettings.showAppTutorial ? `rgba(${rgb},0.85)` : 'var(--line)'};
+              border:1px solid rgba(255,255,255,0.1); transition:background .2s; cursor:pointer;
+            ">
+              <div style="position:absolute; top:3px; left:${appSettings.showAppTutorial ? '22px' : '3px'};
+                width:16px; height:16px; border-radius:50%; background:#fff; transition:left .2s;"></div>
+            </div>
+            <span style="font-size:14px;">${appSettings.showAppTutorial ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+
+        <div class="col" style="gap:8px;">
+          <div style="font-size:14px; font-weight:600;">Autosave Interval</div>
+          <div class="mini muted" style="margin-bottom:4px;">How often your character is automatically saved to local storage.</div>
+          <div class="row" style="gap:8px; flex-wrap:wrap;">
+            ${autosaveOptions.map(o => `
+              <button class="btn autosave-opt" data-ms="${o.ms}" style="
+                padding:7px 16px; font-size:13px;
+                ${appSettings.autosaveMs === o.ms
+                  ? `background:rgba(${rgb},0.25); border-color:rgba(${rgb},0.7); color:rgba(${rgb},1);`
+                  : ''}
+              ">${escapeHtml(o.label)}</button>
+            `).join('')}
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    document.getElementById('colorModeToggle').onclick = () => {
+      appSettings.colorMode = !appSettings.colorMode;
+      saveAppSettings();
+      render();
+    };
+
+    document.getElementById('cardGlowToggle').onclick = () => {
+      appSettings.cardGlow = !appSettings.cardGlow;
+      saveAppSettings();
+      render();
+    };
+
+    document.getElementById('cloudSaveToggle').onclick = () => {
+      appSettings.cloudSaveOnExit = !appSettings.cloudSaveOnExit;
+      saveAppSettings();
+      renderSettings();
+    };
+
+    document.getElementById('tutorialToggle').onclick = () => {
+      appSettings.showTutorial = !appSettings.showTutorial;
+      saveAppSettings();
+      renderSettings();
+    };
+
+    document.getElementById('appTutorialToggle').onclick = () => {
+      appSettings.showAppTutorial = !appSettings.showAppTutorial;
+      saveAppSettings();
+      renderSettings();
+    };
+
+    document.querySelectorAll('.autosave-opt').forEach(btn => {
+      btn.onclick = () => {
+        appSettings.autosaveMs = Number(btn.dataset.ms);
+        saveAppSettings();
+        startAutosave();
+        renderSettings();
+      };
+    });
   }
 
   // --- Field templates & wiring ---
