@@ -79,6 +79,7 @@
       gap:12px;
       min-width:0;
       overflow-x:hidden;
+      padding-bottom:80px;
     }
 
     .card{
@@ -89,11 +90,12 @@
       padding:12px;
     }
     #tabsCard{
-      position:sticky; top:0; z-index:10;
-      background:rgba(11,15,20,.95);
+      position:fixed; bottom:0; left:0; right:0; z-index:20;
+      background:rgba(11,15,20,.97);
       backdrop-filter:blur(8px);
       border-radius:0;
-      border-left:none; border-right:none; border-top:none;
+      border-top:1px solid var(--line);
+      border-left:none; border-right:none; border-bottom:none;
       overflow:hidden;
     }
 
@@ -121,10 +123,10 @@
     .tab{
       border:1px solid var(--line);
       background:var(--btn2);
-      padding:8px 10px;
+      padding:10px 16px;
       border-radius:999px;
       color:var(--text);
-      font-size:13px;
+      font-size:14px;
       cursor:pointer;
       user-select:none;
     }

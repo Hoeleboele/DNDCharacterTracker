@@ -1419,6 +1419,9 @@ Required structure:
             <div class="mini">${sub || '<span class="muted">(race/background not set)</span>'}</div>
           </div>
           <div class="row" style="gap:8px;">
+            <button class="btn" id="btnSaveLocal" style="padding:5px 14px; font-size:13px;">${saveBtnLabel()}</button>
+          </div>
+          <div class="row" style="gap:8px;">
             <span class="pill">AC <b style="color:var(--text)">${c.combat.ac}</b></span>
             <span class="pill">Speed <b style="color:var(--text)">${c.combat.speed}</b></span>
             <span class="pill">Init <b style="color:var(--text)">${signed(Math.floor((toInt(c.ability_scores?.dex,10)-10)/2) + toInt(c.combat.initiative_mod,0))}</b></span>
@@ -1441,6 +1444,14 @@ Required structure:
       </div>
     `;
 
+    // Wire header save button
+    $('#btnSaveLocal').onclick = () => {
+      state.exported_at = new Date().toISOString();
+      flashSaveBtn('Saving…', 0);
+      const ok = saveToLocalStorage();
+      flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
+    };
+
     // Wire header buttons — none left here
   }
 
@@ -1461,8 +1472,6 @@ Required structure:
 
     $('#tabsCard').innerHTML = `
       <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
-        <button class="btn" id="btnSaveLocal" style="flex-shrink:0;">${saveBtnLabel()}</button>
-
         <button id="tabScrollLeft" class="tab" style="flex-shrink:0;">&#8249;</button>
         <div class="tabs" id="tabsScroller" style="flex:1; min-width:0;">
           ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" data-tab="${t.id}" style="white-space:nowrap;">${t.label}</div>`).join('')}
@@ -1521,13 +1530,6 @@ Required structure:
       flashSaveBtn('Saving…', 0);
       saveToLocalStorage();
       returnToMenu();
-    };
-
-    $('#btnSaveLocal').onclick = () => {
-      state.exported_at = new Date().toISOString();
-      flashSaveBtn('Saving…', 0);
-      const ok = saveToLocalStorage();
-      flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     };
 
   }
