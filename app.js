@@ -1718,6 +1718,19 @@ Required structure:
       const hd = obj.hit_dice || {};
       return `${toInt(hd.total, obj.level||1)} / ${hd.die||'d8'}`;
     }
+    if (dotted === '_currency') {
+      const cur = (obj.inventory || {}).currency || {};
+      return [['CP',cur.cp],['SP',cur.sp],['EP',cur.ep],['GP',cur.gp],['PP',cur.pp]]
+        .map(([l,v]) => `${l}:\u00a0${toInt(v,0)}`).join(' / ');
+    }
+    if (dotted === '_proficiencies') {
+      const profs = obj.proficiencies || [];
+      return profs.length ? profs.join(', ') : 'None';
+    }
+    if (dotted === '_languages') {
+      const langs = obj.languages || [];
+      return langs.length ? langs.join(', ') : 'None';
+    }
     if (dotted === '_conditions') {
       const conds = obj.conditions || [];
       return conds.length ? conds.join(', ') : 'None';
@@ -1753,6 +1766,8 @@ Required structure:
   function tabForKey(key){
     if (key.startsWith('_slot_') || key.startsWith('spellcasting.')) return 'spells';
     if (key.startsWith('inventory.')) return 'inventory';
+    if (key === '_currency') return 'inventory';
+    if (key === '_proficiencies' || key === '_languages') return 'class_race';
     if (key.startsWith('ability_scores.') || key.startsWith('skill_')) return 'stats';
     if (key === 'attacks' || key === 'actions' || key === 'combat_spells') return 'combat';
     if (key.startsWith('resources.') || key.startsWith('features.')) return 'features';
@@ -2046,7 +2061,7 @@ Required structure:
             <button class="btn" id="btnToggleCaster">${isCaster ? 'Disable Spellcasting' : 'Enable Spellcasting'}</button>
           </div>
 
-          <div class="mini" style="margin-top:14px; font-weight:600;">Proficiencies</div>
+          <div class="mini" style="margin-top:14px; font-weight:600; display:flex; align-items:center; gap:4px;">Proficiencies${fieldStar('_proficiencies','Proficiencies')}</div>
           <div class="row" style="margin-top:6px;">
             <input type="text" id="profInput" placeholder="Add a proficiency…" style="flex:1;" />
             <button class="btn" id="btnAddProf">Add</button>
@@ -2055,7 +2070,7 @@ Required structure:
             ${(c.proficiencies||[]).length ? (c.proficiencies||[]).map((x,i) => `<span class="pill">${escapeHtml(x)} <a href="#" data-del-prof="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No proficiencies added.</div>`}
           </div>
 
-          <div class="mini" style="margin-top:14px; font-weight:600;">Languages</div>
+          <div class="mini" style="margin-top:14px; font-weight:600; display:flex; align-items:center; gap:4px;">Languages${fieldStar('_languages','Languages')}</div>
           <div class="row" style="margin-top:6px;">
             <input type="text" id="langInput" placeholder="Add a language…" style="flex:1;" />
             <button class="btn" id="btnAddLang">Add</button>
@@ -2871,7 +2886,8 @@ Required structure:
         picker.querySelectorAll('[data-pick-spell]').forEach(btn => btn.onclick = () => {
           const sp = allSpellOptions[toInt(btn.dataset.pickSpell, 0)];
           c.combat_spells = c.combat_spells || [];
-          c.combat_spells.push({ name: sp.name, level: sp.level || 0, notes: sp.notes || '' });
+          const { _type, ...spData } = sp;
+          c.combat_spells.push({ ...spData, level: spData.level || 0 });
           picker.remove();
           render();
         });
@@ -2979,36 +2995,75 @@ Required structure:
       const list = document.getElementById('combatSpellsList');
       if (!list) return;
       const spells = c.combat_spells || [];
-      list.innerHTML = spells.length ? spells.map((sp,i) => `
-        <div class="item">
-          <div>
+      list.innerHTML = spells.length ? spells.map((x,i) => {
+        const statsHtml = [
+          x.casting_time ? `<span><b>Casting Time:</b> <span class="spell-val">${escapeHtml(x.casting_time)}</span></span>` : '',
+          x.range_area   ? `<span><b>Range/Area:</b> <span class="spell-val">${escapeHtml(x.range_area)}</span></span>` : '',
+          x.duration     ? `<span><b>Duration:</b> <span class="spell-val">${escapeHtml(x.duration)}</span></span>` : '',
+          x.components   ? `<span><b>Components:</b> <span class="spell-val">${escapeHtml(x.components)}</span></span>` : '',
+        ].filter(Boolean).join('<span class="spell-dot"> · </span>');
+        const hasStats = !!(x.casting_time || x.range_area || x.duration || x.components);
+        const levelLabel = (x.level || 0) === 0 ? 'Cantrip' : `lvl ${x.level}`;
+        return `
+          <div class="item" style="grid-template-columns:1fr;">
             <div class="row" style="justify-content:space-between; align-items:flex-start;">
-              <b>${escapeHtml(sp.name || 'Spell')}</b>
-              <span class="pill">Level ${sp.level ?? 0}</span>
+              <div class="row" style="gap:8px; align-items:center;">
+                <b>${escapeHtml(x.name || 'Spell')}</b>
+                <span class="pill">${levelLabel}</span>
+              </div>
+              <div class="row" style="gap:6px;">
+                <button class="btn" data-csp-expand="${i}">Details</button>
+                <button class="btn danger" data-csp-del="${i}">Delete</button>
+              </div>
             </div>
-            ${sp.notes ? `<div class="mini">${escapeHtml(sp.notes)}</div>` : ''}
+            ${x.notes ? `<div class="mini" style="margin-top:4px;">${escapeHtml(x.notes)}</div>` : ''}
+            <div class="spell-card-full" style="display:none; margin-top:10px;">
+              <div class="spell-card">
+                <div class="spell-card-title">${escapeHtml(x.name || 'Spell')}</div>
+                ${x.subtitle ? `<div class="spell-card-subtitle">${escapeHtml(x.subtitle)}</div>` : ''}
+                <hr class="spell-card-rule" />
+                ${hasStats ? `<div class="spell-card-stats">${statsHtml}</div>` : ''}
+                ${hasStats && x.description ? `<hr class="spell-card-rule" />` : ''}
+                ${x.description ? `<div class="spell-card-desc">${escapeHtml(x.description).replace(/\n/g,'<br/>')}</div>` : '<div class="mini">No description yet.</div>'}
+                <div class="row" style="margin-top:12px; gap:8px;">
+                  <button class="btn" data-csp-edit="${i}">Edit Details</button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="row" style="justify-content:flex-end;">
-            <button class="btn" data-csp-edit="${i}">Edit</button>
-            <button class="btn danger" data-csp-del="${i}">Delete</button>
-          </div>
-        </div>
-      `).join('') : `<div class="mini">No spells added.</div>`;
+        `;
+      }).join('') : `<div class="mini">No spells added.</div>`;
+
+      list.querySelectorAll('[data-csp-expand]').forEach(btn => btn.onclick = () => {
+        const card = btn.closest('.item').querySelector('.spell-card-full');
+        const isOpen = card.style.display !== 'none';
+        card.style.display = isOpen ? 'none' : 'block';
+        btn.textContent = isOpen ? 'Details' : 'Close';
+      });
 
       list.querySelectorAll('[data-csp-edit]').forEach(btn => btn.onclick = () => {
         const i = toInt(btn.dataset.cspEdit, -1);
         const sp = c.combat_spells[i];
-        const name = prompt('Spell name:', sp.name ?? '');
+        const name = prompt('Name:', sp.name ?? '');
         if (name == null) return;
-        const level = prompt('Spell level (0 = cantrip):', sp.level ?? 1);
-        if (level == null) return;
-        const notes = prompt('Notes:', sp.notes ?? '');
-        if (notes == null) return;
-        sp.name = name;
-        sp.level = toInt(level, 0);
-        sp.notes = notes;
+        const subtitle = prompt('Subtitle (e.g. "1st-level Evocation"):', sp.subtitle ?? '');
+        if (subtitle == null) return;
+        const casting_time = prompt('Casting Time:', sp.casting_time ?? '');
+        if (casting_time == null) return;
+        const range_area = prompt('Range/Area:', sp.range_area ?? '');
+        if (range_area == null) return;
+        const duration = prompt('Duration:', sp.duration ?? '');
+        if (duration == null) return;
+        const components = prompt('Components:', sp.components ?? '');
+        if (components == null) return;
+        const description = prompt('Description:', sp.description ?? '');
+        if (description == null) return;
+        sp.name = name; sp.subtitle = subtitle; sp.casting_time = casting_time;
+        sp.range_area = range_area; sp.duration = duration; sp.components = components;
+        sp.description = description;
         render();
       });
+
       list.querySelectorAll('[data-csp-del]').forEach(btn => btn.onclick = () => {
         const i = toInt(btn.dataset.cspDel, -1);
         c.combat_spells.splice(i, 1);
@@ -3038,13 +3093,13 @@ Required structure:
         </div>
 
         <div class="col">
-          <h2>Currency</h2>
+          <h2 style="display:flex; align-items:center; gap:6px;">Currency${fieldStar('_currency','Currency')}</h2>
           <div class="grid3" style="margin-top:10px;">
-            ${numField('CP (Copper pieces)','inventory.currency.cp', inv.currency.cp)}
-            ${numField('SP (Silver pieces)','inventory.currency.sp', inv.currency.sp)}
-            ${numField('EP (Electrum piece)','inventory.currency.ep', inv.currency.ep)}
-            ${numField('GP (Gold piece)','inventory.currency.gp', inv.currency.gp)}
-            ${numField('PP (Platinum piece)','inventory.currency.pp', inv.currency.pp)}
+            <label class="col" style="gap:4px;"><div class="mini">CP (Copper pieces)</div><input type="number" data-num="inventory.currency.cp" value="${escapeAttr(String(inv.currency.cp ?? 0))}" /></label>
+            <label class="col" style="gap:4px;"><div class="mini">SP (Silver pieces)</div><input type="number" data-num="inventory.currency.sp" value="${escapeAttr(String(inv.currency.sp ?? 0))}" /></label>
+            <label class="col" style="gap:4px;"><div class="mini">EP (Electrum piece)</div><input type="number" data-num="inventory.currency.ep" value="${escapeAttr(String(inv.currency.ep ?? 0))}" /></label>
+            <label class="col" style="gap:4px;"><div class="mini">GP (Gold piece)</div><input type="number" data-num="inventory.currency.gp" value="${escapeAttr(String(inv.currency.gp ?? 0))}" /></label>
+            <label class="col" style="gap:4px;"><div class="mini">PP (Platinum piece)</div><input type="number" data-num="inventory.currency.pp" value="${escapeAttr(String(inv.currency.pp ?? 0))}" /></label>
           </div>
         </div>
       </div>
