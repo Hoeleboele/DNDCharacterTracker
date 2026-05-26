@@ -1157,6 +1157,11 @@ Required structure:
     }
 
     out.character.conditions = Array.isArray(out.character.conditions) ? out.character.conditions : [];
+    out.character.death_saves = out.character.death_saves || { successes: [false,false,false], failures: [false,false,false] };
+    out.character.death_saves.successes = Array.isArray(out.character.death_saves.successes) ? out.character.death_saves.successes.map(Boolean) : [false,false,false];
+    out.character.death_saves.failures  = Array.isArray(out.character.death_saves.failures)  ? out.character.death_saves.failures.map(Boolean)  : [false,false,false];
+    while (out.character.death_saves.successes.length < 3) out.character.death_saves.successes.push(false);
+    while (out.character.death_saves.failures.length  < 3) out.character.death_saves.failures.push(false);
     out.character.resources = Array.isArray(out.character.resources) ? out.character.resources : [];
     out.character.features = Array.isArray(out.character.features) ? out.character.features : [];
     out.character.attacks = Array.isArray(out.character.attacks) ? out.character.attacks : [];
@@ -2358,6 +2363,17 @@ Required structure:
           <button class="btn good" id="btnHeal">Heal</button>
           <button class="btn" id="btnTemp">Set Temp</button>
         </div>
+        <div style="margin-top:12px; border-top:1px solid var(--line); padding-top:10px;">
+          <div class="mini" style="font-weight:600; margin-bottom:6px;">Death Saving Throws</div>
+          <div class="row" style="gap:8px; align-items:center;">
+            <span class="mini" style="width:64px; color:var(--good);">Successes</span>
+            ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="successes" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--good);background:${(c.death_saves?.successes||[])[i] ? 'var(--good)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+          </div>
+          <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+            <span class="mini" style="width:64px; color:var(--bad);">Failures</span>
+            ${[0,1,2].map(i => `<button class="dst-btn" data-dst-type="failures" data-dst-idx="${i}" style="width:26px;height:26px;border-radius:50%;border:2px solid var(--bad);background:${(c.death_saves?.failures||[])[i] ? 'var(--bad)' : 'transparent'};cursor:pointer;"></button>`).join('')}
+          </div>
+        </div>
       </div>
       <div class="grid2">
         <div class="col">
@@ -2380,6 +2396,18 @@ Required structure:
     $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
     $('#btnHeal').onclick   = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
     $('#btnTemp').onclick   = () => setTempHp(toInt($('#hpDelta').value, 0));
+
+    $('#contentCard').querySelectorAll('.dst-btn').forEach(btn => {
+      btn.onclick = () => {
+        const type = btn.dataset.dstType;
+        const idx  = toInt(btn.dataset.dstIdx, 0);
+        c.death_saves = c.death_saves || { successes:[false,false,false], failures:[false,false,false] };
+        c.death_saves[type][idx] = !c.death_saves[type][idx];
+        const color = type === 'successes' ? 'var(--good)' : 'var(--bad)';
+        btn.style.background = c.death_saves[type][idx] ? color : 'transparent';
+        saveToLocalStorage();
+      };
+    });
 
     $('#btnAddAttack').onclick = () => {
       const strMod = Math.floor((toInt(c.ability_scores?.str, 10) - 10) / 2);
