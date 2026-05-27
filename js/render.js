@@ -26,7 +26,22 @@ function renderHeader(){
   const percProf = Array.isArray(c.skill_proficiencies) && c.skill_proficiencies.includes('perception');
   const passivePerception = 10 + wisMod + (percProf ? profBonus : 0) + toInt(c.combat.pp_bonus, 0);
 
-  const hpMax = c.hp.max || 1;
+  // Apply exhaustion-derived computed values and persist minimal changes (clamp HP, dead flag)
+  const effects = computeExhaustionEffects(c);
+  const displayedSpeed = effects.effectiveSpeed ?? (c.combat?.speed ?? 30);
+  const displayedHpMax = effects.effectiveHpMax ?? (c.hp.max || 1);
+  c.conditions = c.conditions || [];
+  let _changed = false;
+  if (effects.flags.death) {
+    if (toInt(c.hp.current, 0) !== 0) { c.hp.current = 0; _changed = true; }
+    if (!c.conditions.includes('Dead')) { c.conditions.push('Dead'); _changed = true; }
+  } else {
+    if (c.conditions.includes('Dead')) { c.conditions = c.conditions.filter(x => x !== 'Dead'); _changed = true; }
+    if (toInt(c.hp.current, 0) > displayedHpMax) { c.hp.current = displayedHpMax; _changed = true; }
+  }
+  if (_changed) saveToLocalStorage();
+
+  const hpMax = displayedHpMax;
   const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
   const pct = Math.round((hpCur / hpMax) * 100);
   const low = pct <= 33;
@@ -45,7 +60,7 @@ function renderHeader(){
         </div>
         <div class="row" style="gap:8px;">
           <span class="pill">AC <b style="color:var(--text)">${c.combat.ac}</b></span>
-          <span class="pill">Speed <b style="color:var(--text)">${c.combat.speed}</b></span>
+          <span class="pill">Speed <b style="color:var(--text)">${displayedSpeed}</b></span>
           <span class="pill">Init <b style="color:var(--text)">${signed(Math.floor((toInt(c.ability_scores?.dex,10)-10)/2) + toInt(c.combat.initiative_mod,0))}</b></span>
           <span class="pill">PP <b style="color:var(--text)">${passivePerception}</b></span>
         </div>
@@ -211,6 +226,7 @@ function renderTabs(){
     { id:'features',   label:'Features' },
     { id:'spells',     label:'Spells', hide: !isCaster },
     { id:'combat',     label:'Combat' },
+    { id:'conditions_exhaustion', label:'Conditions' },
     { id:'inventory',  label:'Inventory' },
     { id:'camp',       label:'Camp' },
     { id:'settings',   label:'Settings' },
@@ -268,6 +284,26 @@ function renderTabs(){
     display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
   `;
 
+  // Top row: Settings + Main Menu side-by-side (moved to top of drawer)
+  const topRow = document.createElement('div');
+  topRow.style.cssText = 'grid-column:1/-1; display:flex; gap:8px; margin-bottom:8px;';
+
+  const settingsBtn = document.createElement('button');
+  settingsBtn.className = 'tab';
+  settingsBtn.textContent = 'Settings';
+  settingsBtn.dataset.tab = 'settings';
+  settingsBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
+
+  const menuBtn = document.createElement('button');
+  menuBtn.id = 'btnMenuToggle';
+  menuBtn.className = 'tab';
+  menuBtn.textContent = 'Save to Main Menu';
+  menuBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
+
+  topRow.appendChild(settingsBtn);
+  topRow.appendChild(menuBtn);
+  drawer.appendChild(topRow);
+
   // Hint label
   const hint = document.createElement('div');
   hint.style.cssText = 'grid-column:1/-1; font-size:11px; color:var(--muted); text-align:center; margin-bottom:2px;';
@@ -289,7 +325,7 @@ function renderTabs(){
       ${isActive ? `border-color:rgba(${bRgb},0.6); background:rgba(${bRgb},0.12);` : `border-color:rgba(${bRgb},0.2);`}`;
     btn.textContent = t.label;
 
-    if (t.id === 'settings') { wrap.appendChild(btn); drawer.appendChild(wrap); return; }
+    if (t.id === 'settings') { return; }
 
     const star = document.createElement('button');
     star.dataset.favBtn = t.id;
@@ -305,14 +341,6 @@ function renderTabs(){
     wrap.appendChild(star);
     drawer.appendChild(wrap);
   });
-
-  // Main Menu button
-  const menuBtn = document.createElement('button');
-  menuBtn.id = 'btnMenuToggle';
-  menuBtn.className = 'tab';
-  menuBtn.textContent = 'Save to Main Menu';
-  menuBtn.style.cssText = 'padding:12px 6px; font-size:14px; grid-column:1/-1;';
-  drawer.appendChild(menuBtn);
 
   overlay.appendChild(drawer);
   document.body.appendChild(overlay);
@@ -405,6 +433,7 @@ function renderContent(){
   else if (activeTab === 'features') renderFeatures(c);
   else if (activeTab === 'spells') renderSpells(c);
   else if (activeTab === 'combat') renderCombat(c);
+  else if (activeTab === 'conditions_exhaustion') renderConditionsExhaustion(c);
   else if (activeTab === 'inventory') renderInventory(c);
   else if (activeTab === 'camp') renderCamp(c);
   else if (activeTab === 'settings') renderSettings();

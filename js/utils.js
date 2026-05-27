@@ -154,3 +154,30 @@ function signed(n){
   const v = toInt(n, 0);
   return (v >= 0 ? '+' : '') + v;
 }
+
+function computeExhaustionEffects(character){
+  const lvl = clamp(toInt((character && character.exhaustion), 0), 0, 6);
+  const combat = (character && character.combat) || {};
+  const hp = (character && character.hp) || {};
+  const baseSpeed = toInt(combat.speed, 30);
+  const baseHpMax = Math.max(toInt(hp.max, 1), 1);
+
+  let effectiveSpeed = baseSpeed;
+  let effectiveHpMax = baseHpMax;
+  const flags = {
+    disadvantageAbilityChecks: false,
+    disadvantageAttackSaving: false,
+    speedZero: false,
+    death: false
+  };
+  const notes = [];
+
+  if (lvl >= 1) { flags.disadvantageAbilityChecks = true; notes.push('Disadvantage on ability checks.'); }
+  if (lvl >= 2) { effectiveSpeed = Math.floor(baseSpeed / 2); notes.push('Speed is halved.'); }
+  if (lvl >= 3) { flags.disadvantageAttackSaving = true; notes.push('Disadvantage on attack rolls and saving throws.'); }
+  if (lvl >= 4) { effectiveHpMax = Math.max(1, Math.floor(baseHpMax / 2)); notes.push('Hit point maximum is halved.'); }
+  if (lvl >= 5) { effectiveSpeed = 0; flags.speedZero = true; notes.push('Speed is reduced to 0.'); }
+  if (lvl >= 6) { flags.death = true; notes.push('Death'); }
+
+  return { level: lvl, effectiveSpeed, effectiveHpMax, notes, flags };
+}

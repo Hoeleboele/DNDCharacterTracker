@@ -118,6 +118,16 @@
       color:var(--muted);
     }
 
+    .abilities-summary{ display:flex; gap:8px; flex-wrap:wrap; }
+    .ability-pill{
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background:rgba(15,22,34,.55);
+      color:var(--muted);
+    }
+
     .tabs{ display:flex; gap:8px; flex-wrap:nowrap; overflow-x:auto; scroll-behavior:smooth; scrollbar-width:none; }
     .tabs::-webkit-scrollbar{ display:none; }
     .tab{

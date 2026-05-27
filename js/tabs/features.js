@@ -22,12 +22,12 @@
 
   $('#btnAddResource').onclick = () => {
     c.resources = c.resources || [];
-    c.resources.push({ name:'New Resource', max:1, used:0, reset:'short', notes:'' });
+    c.resources.push({ name:'New Resource', max:1, used:0, reset:'short', notes:'', is_action:false });
     render();
   };
   $('#btnAddFeature').onclick = () => {
     c.features = c.features || [];
-    c.features.push({ name:'New Feature', description:'', uses_max:null, uses_used:null, reset:'none' });
+    c.features.push({ name:'New Feature', description:'', uses_max:null, uses_used:null, reset:'none', is_action:false });
     render();
   };
 
@@ -38,12 +38,21 @@
       <div class="item">
         <div>
           <div class="row" style="justify-content:space-between; align-items:center; gap:6px;">
-            <b>${escapeHtml(x.name || 'Resource')}</b>
-            <select class="reset-sel" data-res-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
-              <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
-              <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
-              <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
-            </select>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <b>${escapeHtml(x.name || 'Resource')}</b>
+              ${x.is_action ? `<span class="pill">Action</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" data-res-action="${i}" ${x.is_action ? 'checked' : ''} />
+                Action
+              </label>
+              <select class="reset-sel" data-res-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
+                <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
+                <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
+                <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
+              </select>
+            </div>
           </div>
           <div class="mini">${escapeHtml(x.notes || '')}</div>
         </div>
@@ -82,6 +91,12 @@
       c.resources[i].reset = sel.value;
       saveToLocalStorage();
     });
+    list.querySelectorAll('[data-res-action]').forEach(cb => cb.onchange = () => {
+      const i = toInt(cb.dataset.resAction, -1);
+      c.resources[i].is_action = !!cb.checked;
+      saveToLocalStorage();
+      render();
+    });
   }
 
   function renderFeaturesList(){
@@ -91,12 +106,21 @@
       <div class="item">
         <div>
           <div class="row" style="justify-content:space-between; align-items:center; gap:6px;">
-            <b>${escapeHtml(x.name || 'Feature')}</b>
-            <select class="reset-sel" data-feat-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
-              <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
-              <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
-              <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
-            </select>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <b>${escapeHtml(x.name || 'Feature')}</b>
+              ${x.is_action ? `<span class="pill">Action</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" data-feat-action="${i}" ${x.is_action ? 'checked' : ''} />
+                Action
+              </label>
+              <select class="reset-sel" data-feat-reset="${i}" style="font-size:12px; padding:2px 6px; border-radius:6px; background:var(--btn); color:var(--text); border:1px solid var(--line); cursor:pointer;">
+                <option value="short" ${(x.reset||'none')==='short'?'selected':''}>Short Rest</option>
+                <option value="long" ${(x.reset||'none')==='long'?'selected':''}>Long Rest</option>
+                <option value="none" ${(x.reset||'none')==='none'?'selected':''}>Never</option>
+              </select>
+            </div>
           </div>
           <div class="mini">${escapeHtml(x.description || '')}</div>
         </div>
@@ -155,6 +179,12 @@
       const i = toInt(sel.dataset.featReset, -1);
       c.features[i].reset = sel.value;
       saveToLocalStorage();
+    });
+    list.querySelectorAll('[data-feat-action]').forEach(cb => cb.onchange = () => {
+      const i = toInt(cb.dataset.featAction, -1);
+      c.features[i].is_action = !!cb.checked;
+      saveToLocalStorage();
+      render();
     });
   }
 }

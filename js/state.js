@@ -72,6 +72,7 @@ function newBlank() {
 
       // Optional extras
       conditions: [],
+      exhaustion: 0,
       resources: [],
       features: [],
       attacks: [],
@@ -126,13 +127,38 @@ function normalize(data){
   }
 
   out.character.conditions = Array.isArray(out.character.conditions) ? out.character.conditions : [];
+  out.character.exhaustion = clamp(toInt(out.character.exhaustion, 0), 0, 6);
   out.character.death_saves = out.character.death_saves || { successes: [false,false,false], failures: [false,false,false] };
   out.character.death_saves.successes = Array.isArray(out.character.death_saves.successes) ? out.character.death_saves.successes.map(Boolean) : [false,false,false];
   out.character.death_saves.failures  = Array.isArray(out.character.death_saves.failures)  ? out.character.death_saves.failures.map(Boolean)  : [false,false,false];
   while (out.character.death_saves.successes.length < 3) out.character.death_saves.successes.push(false);
   while (out.character.death_saves.failures.length  < 3) out.character.death_saves.failures.push(false);
   out.character.resources = Array.isArray(out.character.resources) ? out.character.resources : [];
+  out.character.resources = out.character.resources.map(r => {
+    if (!r || typeof r !== 'object') return { name: String(r || ''), max:0, used:0, reset:'none', notes:'', is_action:false };
+    return {
+      name: r.name || '',
+      max: toInt(r.max, 0),
+      used: clamp(toInt(r.used, 0), 0, toInt(r.max, 0) || 0),
+      reset: r.reset || 'none',
+      notes: r.notes || '',
+      is_action: !!r.is_action
+    };
+  });
   out.character.features = Array.isArray(out.character.features) ? out.character.features : [];
+  out.character.features = out.character.features.map(f => {
+    if (!f || typeof f !== 'object') return { name: String(f || ''), description:'', uses_max:null, uses_used:null, reset:'none', is_action:false };
+    const uses_max = f.uses_max == null ? null : clamp(toInt(f.uses_max, 0), 0, 99);
+    const uses_used = f.uses_used == null ? null : clamp(toInt(f.uses_used, 0), 0, (uses_max != null ? uses_max : 99));
+    return {
+      name: f.name || '',
+      description: f.description || '',
+      uses_max: uses_max,
+      uses_used: uses_used,
+      reset: f.reset || 'none',
+      is_action: !!f.is_action
+    };
+  });
   out.character.attacks = Array.isArray(out.character.attacks) ? out.character.attacks : [];
   out.character.quests = Array.isArray(out.character.quests) ? out.character.quests : [];
   if (out.character.hit_dice && typeof out.character.hit_dice === 'object') {

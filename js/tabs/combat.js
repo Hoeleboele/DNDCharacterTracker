@@ -1,7 +1,8 @@
 ﻿function renderCombat(c){
-  const hpMax = c.hp.max || 1;
+  const effects = computeExhaustionEffects(c);
+  const hpMax = effects.effectiveHpMax ?? (c.hp.max || 1);
   const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
-  const pct = Math.round((hpCur / hpMax) * 100);
+  const pct = hpMax ? Math.round((hpCur / hpMax) * 100) : 0;
   const low = pct <= 33;
   const attacks = c.attacks || [];
   const actions = c.actions || [];
@@ -57,29 +58,24 @@
       <div class="col" id="combatSpellsCol">
         <h2>Spells</h2>
         <div class="mini">Prepared or custom spells ready to cast.</div>
+        <h3 style="margin-top:10px; margin-bottom:6px; font-size:1.05em;">Spell Slots</h3>
+        <div class="list" id="combatSlotsList" style="margin-top:6px;"></div>
+        <div style="height:8px"></div>
         <div class="list" id="combatSpellsList" style="margin-top:10px;"></div>
         <button class="btn" id="btnAddCombatSpell">Add Spell</button>
       </div>
       ` : ''}
     </div>
 
-    <h2 style="margin-top:14px;">Conditions</h2>
-    <div class="row" style="margin-top:8px;">
-      <select id="condInputCombat">
-        <option value="">— Select condition —</option>
-        ${['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'].map(x => `<option value="${x}">${x}</option>`).join('')}
-        <option value="__custom__">Custom...</option>
-      </select>
-      <button class="btn" id="btnAddCondCombat">Add</button>
-    </div>
-    <div class="row" style="margin-top:8px; flex-wrap:wrap; gap:6px;" id="condListCombat">
-      ${(c.conditions||[]).length ? (c.conditions||[]).map((x,i)=>`<span class="pill">${escapeHtml(x)} <a href="#" data-del-cond-combat="${i}" title="remove">×</a></span>`).join('') : `<div class="mini">No conditions.</div>`}
-    </div>
+    
   `;
 
   renderAttacks();
   renderActions();
-  if (c.spellcasting) renderCombatSpells();
+  if (c.spellcasting) {
+    renderSpellSlots(c, '#combatSlotsList', true);
+    renderCombatSpells();
+  }
 
   $('#btnDamage').onclick = () => applyHpDelta(-toInt($('#hpDelta').value, 0));
   $('#btnHeal').onclick   = () => applyHpDelta(+toInt($('#hpDelta').value, 0));
@@ -183,33 +179,60 @@
     document.getElementById('btnPickCancel').onclick = () => picker.remove();
   };
 
-  document.getElementById('btnAddCondCombat').onclick = () => {
-    let v = (document.getElementById('condInputCombat').value || '').trim();
-    if (!v) return;
-    if (v === '__custom__') {
-      const custom = prompt('Enter custom condition:');
-      if (!custom || !custom.trim()) return;
-      v = custom.trim();
-    }
-    c.conditions = c.conditions || [];
-    if (!c.conditions.includes(v)) c.conditions.push(v);
-    document.getElementById('condInputCombat').value = '';
-    render();
-  };
-
-  $('#contentCard').querySelectorAll('[data-del-cond-combat]').forEach(a => {
-    a.onclick = (e) => {
-      e.preventDefault();
-      const idx = toInt(a.dataset.delCondCombat, -1);
-      if (idx >= 0) c.conditions.splice(idx, 1);
-      render();
-    };
-  });
+  
 
   $('#btnAddAction').onclick = () => {
     c.actions = c.actions || [];
-    c.actions.push({ name:'New Action', notes:'' });
-    render();
+    const actionFeatures = (c.features || []).map((f, idx) => ({ ...f, _idx: idx })).filter(f => f.is_action);
+    const actionResources = (c.resources || []).map((r, idx) => ({ ...r, _idx: idx })).filter(r => r.is_action);
+
+    const existingPicker = document.getElementById('actionPicker');
+    if (existingPicker) { existingPicker.remove(); return; }
+
+    const picker = document.createElement('div');
+    picker.id = 'actionPicker';
+    picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
+    picker.innerHTML = `
+      ${actionFeatures.length ? `<div class="mini" style="font-weight:600;">Add from Features (Action):</div>
+        ${actionFeatures.map((f) => `
+          <button class="btn" data-pick-type="feature" data-pick-idx="${f._idx}" style="text-align:left;">
+            ${escapeHtml(f.name)} <span class="muted" style="font-size:0.85em;">Feature</span>
+            ${f.description ? `<div class="mini" style="margin-top:4px;">${escapeHtml(f.description)}</div>` : ''}
+          </button>
+        `).join('')}` : ''}
+      ${actionResources.length ? `<div class="mini" style="font-weight:600; margin-top:6px;">Add from Resources (Action):</div>
+        ${actionResources.map((r) => `
+          <button class="btn" data-pick-type="resource" data-pick-idx="${r._idx}" style="text-align:left;">
+            ${escapeHtml(r.name)} <span class="muted" style="font-size:0.85em;">Resource</span>
+            ${r.notes ? `<div class="mini" style="margin-top:4px;">${escapeHtml(r.notes)}</div>` : ''}
+          </button>
+        `).join('')}` : ''}
+      <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>
+      <button class="btn" id="btnPickManualAction">+ Manual entry</button>
+      <button class="btn danger" id="btnPickActionCancel">Cancel</button>
+    `;
+    $('#btnAddAction').insertAdjacentElement('afterend', picker);
+
+    picker.querySelectorAll('[data-pick-type]').forEach(btn => btn.onclick = () => {
+      const type = btn.dataset.pickType;
+      const idx = toInt(btn.dataset.pickIdx, 0);
+      if (type === 'feature') {
+        const feat = c.features[idx];
+        c.actions.push({ name: feat.name, notes: feat.description || '' });
+      } else if (type === 'resource') {
+        const res = c.resources[idx];
+        c.actions.push({ name: res.name, notes: res.notes || '' });
+      }
+      picker.remove();
+      render();
+    });
+
+    document.getElementById('btnPickManualAction').onclick = () => {
+      c.actions.push({ name:'New Action', notes:'' });
+      picker.remove();
+      render();
+    };
+    document.getElementById('btnPickActionCancel').onclick = () => picker.remove();
   };
 
   if (c.spellcasting) {

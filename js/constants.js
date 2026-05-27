@@ -149,6 +149,7 @@ const TAB_TIPS = {
   features:   { title: '🌿 Features',    body: 'Manage class features and limited-use resources like Channel Divinity or Ki Points. Reset them on a short or long rest.' },
   spells:     { title: '✨ Spells',       body: 'Track spell slots, prepared spells, and cantrips. Your Save DC and Attack Bonus are calculated automatically.' },
   combat:     { title: '⚔️ Combat',      body: 'Track HP, death saves, attacks and conditions. Casters also get a Spells panel — use the toggle on mobile to switch between them.' },
+  conditions_exhaustion: { title: '🩺 Conditions', body: 'Manage conditions and exhaustion levels (1–6). Exhaustion affects speed and hit point maximum and can cause death at level 6.' },
   inventory:  { title: '🎒 Inventory',   body: 'Manage items, equipment, and currency. Mark items as equipped to track what your character is carrying.' },
   camp:       { title: '🏕️ Camp',        body: 'Take a Short or Long Rest to recover HP, spend hit dice, and reset your resources and spell slots.' },
   settings:   { title: '⚙️ Settings',    body: 'Customise tab colors, card glow, autosave interval, cloud sync, and tutorial preferences.' },

@@ -2,6 +2,8 @@
   if (!c.ability_scores) c.ability_scores = { str:10, dex:10, con:10, int:10, wis:10, cha:10 };
   if (!Array.isArray(c.skill_proficiencies)) c.skill_proficiencies = [];
   if (!Array.isArray(c.skill_disadvantages)) c.skill_disadvantages = [];
+  if (!Array.isArray(c.saving_throw_proficiencies)) c.saving_throw_proficiencies = [];
+  if (!Array.isArray(c.ability_disadvantages)) c.ability_disadvantages = [];
   const as = c.ability_scores;
   const profBonus = c.combat.proficiency_bonus || 2;
 
@@ -81,6 +83,23 @@
       <div class="col">
         <h2>Skills <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
         <div class="skill-list" style="margin-top:10px;">
+          ${stats.map(s => {
+            const savePro = c.saving_throw_proficiencies.includes(s.key);
+            const saveDis = c.ability_disadvantages.includes(s.key);
+            const saveTotal = abilityMod(s.key) + (savePro ? profBonus : 0);
+            return `
+              <div class="skill-row ability-in-list">
+                <button class="skill-prof-dot${savePro ? ' proficient' : ''}" data-save-toggle="${s.key}" title="Toggle saving throw proficiency"></button>
+                <button class="skill-dis-btn${saveDis ? ' active' : ''}" data-save-dis="${s.key}" title="Toggle disadvantage">DIS</button>
+                <span class="skill-mod-val" data-save-mod="${s.key}" style="color:${saveTotal >= 0 ? 'var(--good)' : 'var(--bad)'}">${saveTotal >= 0 ? '+' : ''}${saveTotal}</span>
+                <span class="skill-name">${s.label}</span>
+                <span class="skill-stat-tag">${s.abbr}</span>
+              </div>
+            `;
+          }).join('')}
+
+          <div style="height:1px;background:var(--line);margin:8px 0;"></div>
+
           ${SKILLS.map(sk => {
             const t = skillTotal(sk);
             const isProficient = c.skill_proficiencies.includes(sk.key);
@@ -108,6 +127,22 @@
       const modEl = $('#contentCard').querySelector(`[data-stat-mod="${key}"]`);
       modEl.textContent = modStr(val);
       modEl.style.color = val >= 10 ? 'var(--good)' : 'var(--bad)';
+      // update any save-mod displays for this ability (ability rows and ability-in-list)
+      $('#contentCard').querySelectorAll(`[data-save-mod="${key}"]`).forEach(el => {
+        const isSavePro = c.saving_throw_proficiencies.includes(key);
+        const saveVal = abilityMod(key) + (isSavePro ? profBonus : 0);
+        el.textContent = (saveVal >= 0 ? '+' : '') + saveVal;
+        el.style.color = saveVal >= 0 ? 'var(--good)' : 'var(--bad)';
+      });
+
+      // update any leftover legacy ability-mod pills (if present)
+      const pillEl = $('#contentCard').querySelector(`[data-ability-mod="${key}"]`);
+      if (pillEl) {
+        pillEl.textContent = statAbbr[key] + ' ' + modStr(val);
+        pillEl.style.color = val >= 10 ? 'var(--good)' : 'var(--bad)';
+      }
+
+      // update skills that use this ability
       SKILLS.filter(sk => sk.stat === key).forEach(sk => {
         const el = $('#contentCard').querySelector(`[data-skill-mod="${sk.key}"]`);
         if (!el) return;
@@ -142,6 +177,39 @@
       if (idx === -1) c.skill_disadvantages.push(key);
       else c.skill_disadvantages.splice(idx, 1);
       btn.classList.toggle('active', c.skill_disadvantages.includes(key));
+      saveToLocalStorage();
+    };
+  });
+
+  // Saving throw proficiency toggles for abilities (update all matching elements)
+  $('#contentCard').querySelectorAll('[data-save-toggle]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.saveToggle;
+      const idx = c.saving_throw_proficiencies.indexOf(key);
+      if (idx === -1) c.saving_throw_proficiencies.push(key);
+      else c.saving_throw_proficiencies.splice(idx, 1);
+      const isPro = c.saving_throw_proficiencies.includes(key);
+      // update all save-toggle buttons for this ability
+      $('#contentCard').querySelectorAll(`[data-save-toggle="${key}"]`).forEach(b => b.classList.toggle('proficient', isPro));
+      // update all save-mod displays for this ability
+      $('#contentCard').querySelectorAll(`[data-save-mod="${key}"]`).forEach(el => {
+        const v = abilityMod(key) + (isPro ? profBonus : 0);
+        el.textContent = (v >= 0 ? '+' : '') + v;
+        el.style.color = v >= 0 ? 'var(--good)' : 'var(--bad)';
+      });
+      saveToLocalStorage();
+    };
+  });
+
+  // Ability disadvantage toggles
+  $('#contentCard').querySelectorAll('[data-save-dis]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.saveDis;
+      const idx = c.ability_disadvantages.indexOf(key);
+      if (idx === -1) c.ability_disadvantages.push(key);
+      else c.ability_disadvantages.splice(idx, 1);
+      const active = c.ability_disadvantages.includes(key);
+      $('#contentCard').querySelectorAll(`[data-save-dis="${key}"]`).forEach(b => b.classList.toggle('active', active));
       saveToLocalStorage();
     };
   });

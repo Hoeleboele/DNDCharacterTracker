@@ -183,6 +183,7 @@ function renderPlayerCard(pid, pd){
   const meta = [ch.race, ch.background, `Level ${ch.level || 1}`, ch.class_name].filter(Boolean).join(' · ');
   const conditions = (ch.conditions || []);
   const combat = ch.combat || {};
+  const ex = computeExhaustionEffects(ch);
   const as2 = ch.ability_scores || {};
   const profB = toInt(combat.proficiency_bonus, 2);
   const wisM = Math.floor((toInt(as2.wis, 10) - 10) / 2);
@@ -190,7 +191,7 @@ function renderPlayerCard(pid, pd){
   const pp = 10 + wisM + (percP ? profB : 0);
   const statPills = [
     `AC ${combat.ac ?? 10}`,
-    `Speed ${combat.speed ?? 30}`,
+    `Speed ${ex.effectiveSpeed ?? (combat.speed ?? 30)}`,
     `Init ${wisM >= 0 ? '+' : ''}${Math.floor((toInt(as2.dex,10)-10)/2) + toInt(combat.initiative_mod,0)}`,
     `PP ${pp}`,
   ].map(s => `<span class="pill" style="font-size:12px;">${s}</span>`).join('');
@@ -307,6 +308,13 @@ function renderHostFullView(){
     }
     if (mpDetailTab === 'stats'){
       return `
+        <div>
+          <h2>Abilities</h2>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+            ${['str','dex','con','int','wis','cha'].map(s => `<span class="pill" style="font-size:12px;">${s.toUpperCase()} ${mod(as[s])}</span>`).join('')}
+          </div>
+        </div>
+
         <div class="grid2">
           <div class="col">
             <h2>Ability Scores</h2>
