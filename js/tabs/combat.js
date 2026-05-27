@@ -218,12 +218,27 @@
       const idx = toInt(btn.dataset.pickIdx, 0);
       if (type === 'feature') {
         const feat = c.features[idx];
-        c.actions.push({ name: feat.name, notes: feat.description || '' });
+        c.actions.push({
+          name: feat.name,
+          notes: feat.description || '',
+          uses_max: feat.uses_max != null ? toInt(feat.uses_max, 0) : null,
+          uses_used: toInt(feat.uses_used, 0),
+          _src: 'feature',
+          _src_idx: idx
+        });
       } else if (type === 'resource') {
         const res = c.resources[idx];
-        c.actions.push({ name: res.name, notes: res.notes || '' });
+        c.actions.push({
+          name: res.name,
+          notes: res.notes || '',
+          max: toInt(res.max, 0),
+          used: toInt(res.used, 0),
+          _src: 'resource',
+          _src_idx: idx
+        });
       }
       picker.remove();
+      saveToLocalStorage();
       render();
     });
 
@@ -339,18 +354,48 @@
   function renderActions(){
     const list = $('#actionsList');
     const acts = c.actions || [];
-    list.innerHTML = acts.length ? acts.map((a,i) => `
-      <div class="item">
-        <div>
-          <b>${escapeHtml(a.name || 'Action')}</b>
-          <div class="mini">${escapeHtml(a.notes || '')}</div>
-        </div>
-        <div class="row" style="justify-content:flex-end;">
-          <button class="btn" data-act-edit="${i}">Edit</button>
-          <button class="btn danger" data-act-del="${i}">Delete</button>
-        </div>
-      </div>
-    `).join('') : `<div class="mini">No actions listed.</div>`;
+    let html = '';
+    if (acts.length) {
+      for (let i = 0; i < acts.length; i++) {
+        const a = acts[i];
+        // Determine current usage from linked source when available
+        let srcMax = null;
+        let srcUsed = null;
+        if (a._src === 'resource' && Array.isArray(c.resources) && c.resources[a._src_idx]) {
+          const rr = c.resources[a._src_idx];
+          srcMax = toInt(rr.max, 0);
+          srcUsed = toInt(rr.used, 0);
+        } else if (a._src === 'feature' && Array.isArray(c.features) && c.features[a._src_idx]) {
+          const ff = c.features[a._src_idx];
+          srcMax = toInt(ff.uses_max, 0);
+          srcUsed = toInt(ff.uses_used, 0);
+        } else {
+          srcMax = toInt(a.max ?? a.uses_max, 0);
+          srcUsed = toInt(a.used ?? a.uses_used, 0);
+        }
+        const hasUses = srcMax > 0;
+        const counterHtml = hasUses ? `<span class="pill" style="margin-right:6px;"><b>${srcUsed}</b> / ${srcMax}</span>` : '';
+
+        const actionControls = hasUses ? `${counterHtml}<button class="btn" data-act-use="${i}">Use</button>` : `<button class="btn" data-act-edit="${i}">Edit</button>`;
+
+        html += `
+          <div class="item">
+            <div>
+              <b>${escapeHtml(a.name || 'Action')}</b>
+              <div class="mini">${escapeHtml(a.notes || '')}</div>
+            </div>
+            <div class="row" style="justify-content:flex-end; gap:8px; align-items:center;">
+              ${actionControls}
+              <button class="btn danger" data-act-del="${i}">X</button>
+            </div>
+          </div>
+        `;
+      }
+    } else {
+      html = `<div class="mini">No actions listed.</div>`;
+    }
+
+    list.innerHTML = html;
 
     list.querySelectorAll('[data-act-edit]').forEach(btn => btn.onclick = () => {
       const i = toInt(btn.dataset.actEdit, -1);
@@ -361,11 +406,34 @@
       if (notes == null) return;
       act.name = name;
       act.notes = notes;
+      saveToLocalStorage();
       render();
     });
+
+    list.querySelectorAll('[data-act-use]').forEach(btn => btn.onclick = () => {
+      const i = toInt(btn.dataset.actUse, -1);
+      const act = c.actions[i];
+      if (act._src === 'resource' && c.resources && c.resources[act._src_idx]) {
+        const rr = c.resources[act._src_idx];
+        rr.used = clamp(toInt(rr.used, 0) + 1, 0, toInt(rr.max, 0));
+        act.used = rr.used;
+      } else if (act._src === 'feature' && c.features && c.features[act._src_idx]) {
+        const ff = c.features[act._src_idx];
+        ff.uses_used = clamp(toInt(ff.uses_used, 0) + 1, 0, toInt(ff.uses_max, 0));
+        act.uses_used = ff.uses_used;
+      } else if (toInt(act.max,0) > 0) {
+        act.used = clamp(toInt(act.used, 0) + 1, 0, toInt(act.max, 0));
+      } else if (toInt(act.uses_max,0) > 0) {
+        act.uses_used = clamp(toInt(act.uses_used, 0) + 1, 0, toInt(act.uses_max, 0));
+      }
+      saveToLocalStorage();
+      render();
+    });
+
     list.querySelectorAll('[data-act-del]').forEach(btn => btn.onclick = () => {
       const i = toInt(btn.dataset.actDel, -1);
       c.actions.splice(i, 1);
+      saveToLocalStorage();
       render();
     });
   }

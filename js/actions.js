@@ -13,6 +13,7 @@ function applyHpDelta(delta){
     // Healing: never raises above max, never affects temp
     c.hp.current = clamp(toInt(c.hp.current, 0) + delta, 0, max);
   }
+  saveToLocalStorage();
   render();
 }
 
