@@ -7,12 +7,18 @@ let mpExpandedPlayers = new Set();
 let mpRefreshing = false;
 let mpViewingPlayer = null;
 let mpDetailTab = 'overview';
+const MP_PLAYER_NOTES_KEY = 'mp_player_notes_v1';
+let mpPlayerNotes = {};
 
 function startHost() {
   setLandingStatus('Starting…');
   gameMode = 'host';
   mpPlayerConns = {};
   mpExpandedPlayers = new Set();
+
+  // Load any host-side fallback notes saved for players so undelivered notes
+  // can be applied when a player next connects.
+  try { mpPlayerNotes = JSON.parse(localStorage.getItem(MP_PLAYER_NOTES_KEY) || '{}') || {}; } catch (_) { mpPlayerNotes = {}; }
 
   mpTryHost(genCode());
 }
@@ -44,10 +50,19 @@ function mpTryHost(code, allowFallback = true) {
     }
   });
   mpPeer.on('connection', (conn) => {
-    mpPlayerConns[conn.peer] = { conn, state: null };
+    mpPlayerConns[conn.peer] = { conn, state: null, notes: '' };
+    // If we have a stored host-side fallback note for this player, send it now
+    try {
+      if (mpPlayerNotes[conn.peer]) {
+        if (conn && conn.open) conn.send({ type: 'host_notes', notes: String(mpPlayerNotes[conn.peer]) });
+        mpPlayerConns[conn.peer].notes = mpPlayerNotes[conn.peer] || '';
+      }
+    } catch (_) {}
     conn.on('data', (data) => {
       if (data.type === 'sync') {
         mpPlayerConns[conn.peer].state = data.state;
+        // if the player included their locally-saved host note, use it
+        if (data.host_notes != null) mpPlayerConns[conn.peer].notes = data.host_notes || '';
         mpRefreshing = false;
         renderHostView();
       }
@@ -76,6 +91,15 @@ function joinGame(code) {
     });
     mpHostConn.on('data', (data) => {
       if (data.type === 'request-sync') syncToHost();
+      else if (data.type === 'host_notes') {
+        // Host is sending a note for this player — persist it locally under the host room code.
+        try {
+          const map = JSON.parse(localStorage.getItem(MP_PLAYER_NOTES_KEY) || '{}') || {};
+          map[mpRoomCode] = String(data.notes || '');
+          localStorage.setItem(MP_PLAYER_NOTES_KEY, JSON.stringify(map));
+        } catch (_) {}
+        try { render(); } catch (_) {}
+      }
     });
     mpHostConn.on('error', () => {
       setLandingStatus('Could not connect. Check the code and try again.');
@@ -97,7 +121,10 @@ function joinGame(code) {
 
 function syncToHost() {
   if (gameMode === 'player' && mpHostConn && mpHostConn.open) {
-    mpHostConn.send({ type: 'sync', state });
+    // Include any locally-saved note for this host so the host can display it.
+    let hostNote = '';
+    try { const map = JSON.parse(localStorage.getItem(MP_PLAYER_NOTES_KEY) || '{}') || {}; hostNote = map[mpRoomCode] || ''; } catch (_) { hostNote = ''; }
+    mpHostConn.send({ type: 'sync', state, host_notes: hostNote });
   }
   saveToLocalStorage();
 }
@@ -151,6 +178,25 @@ function renderHostView() {
       mpViewingPlayer = btn.dataset.fullview;
       mpDetailTab = 'overview';
       renderHostFullView();
+    };
+  });
+
+  inner.querySelectorAll('[data-notes]').forEach(btn => {
+    btn.onclick = () => {
+      const pid = btn.dataset.notes;
+      const existing = (mpPlayerConns[pid] && mpPlayerConns[pid].notes) || mpPlayerNotes[pid] || '';
+      const val = prompt('Host notes for player (saved locally):', existing || '');
+      if (val == null) return;
+      // Save to host fallback store and send the note to the player if connected.
+      try {
+        mpPlayerNotes[pid] = String(val);
+        localStorage.setItem(MP_PLAYER_NOTES_KEY, JSON.stringify(mpPlayerNotes));
+        if (mpPlayerConns[pid] && mpPlayerConns[pid].conn && mpPlayerConns[pid].conn.open) {
+          mpPlayerConns[pid].conn.send({ type: 'host_notes', notes: String(val) });
+          mpPlayerConns[pid].notes = String(val);
+        }
+      } catch (e) { }
+      renderHostView();
     };
   });
 
@@ -242,6 +288,7 @@ function renderPlayerCard(pid, pd) {
       <div class="player-card-footer">
         <button class="btn" data-expand="${pid}">${isExpanded ? 'Collapse' : 'View Details'}</button>
         ${isExpanded ? `<button class="btn" data-fullview="${pid}">Full Overview</button>` : ''}
+        <button class="btn" data-notes="${pid}">Notes</button>
       </div>
     </div>`;
 }
@@ -386,6 +433,40 @@ function renderHostFullView() {
           </div>
         </div>`;
     }
+    if (mpDetailTab === 'features') {
+      return `
+        <div class="grid2">
+          <div class="col">
+            <h2>Resources</h2>
+            ${(ch.resources || []).length ? (ch.resources || []).map(r => `
+              <div class="item">
+                <div><b>${escapeHtml(r.name)}</b><div class="mini">${escapeHtml(r.notes || '')} · resets on ${r.reset || 'never'}</div></div>
+                <span class="pill">${toInt(r.used, 0)} / ${toInt(r.max, 0)}</span>
+              </div>`).join('') : '<div class="mini">No resources.</div>'}
+          </div>
+          <div class="col">
+            <h2>Features</h2>
+            ${(ch.features || []).length ? (ch.features || []).map(f => `
+              <div class="item">
+                <div>
+                  <b>${escapeHtml(f.name || 'Feature')}</b>
+                  <div class="mini">${escapeHtml(f.description || '')}</div>
+                </div>
+                ${f.uses_max != null ? `<span class="pill">${toInt(f.uses_used, 0)} / ${toInt(f.uses_max, 0)}</span>` : ''}
+              </div>`).join('') : '<div class="mini">No features.</div>'}
+            ${ (ch.feats && (ch.feats.length > 0)) ? `
+              <h2 style="margin-top:14px;">Feats</h2>
+              ${(ch.feats || []).map(ft => `
+                <div class="item">
+                  <div>
+                    <b>${escapeHtml(ft.name || 'Feat')}</b>
+                    <div class="mini">${escapeHtml(ft.description || ft.notes || '')}</div>
+                  </div>
+                </div>`).join('')}
+            ` : ''}
+          </div>
+        </div>`;
+    }
     if (mpDetailTab === 'combat') {
       return `
         <div class="grid2">
@@ -476,6 +557,7 @@ function renderHostFullView() {
   const hpC = toInt(hp2.current, 0); const hpM2 = Math.max(toInt(hp2.max, 1), 1);
   const hpPct2 = clamp(Math.round(hpC / hpM2 * 100), 0, 100);
   const hpCol2 = hpPct2 > 50 ? 'var(--good)' : hpPct2 > 25 ? 'var(--warn)' : 'var(--bad)';
+  const hostNotes = (pd && pd.notes) || mpPlayerNotes[mpViewingPlayer] || '';
 
   inner.innerHTML = `
     <div style="max-width:1200px; margin:0 auto; padding:16px;">
@@ -486,6 +568,7 @@ function renderHostFullView() {
         <div style="flex:1; padding:0 16px;">
           <div style="font-size:22px; font-weight:700;">${escapeHtml(ch.name || 'Unnamed')}</div>
           <div class="mini">${escapeHtml([ch.race, ch.background, `Level ${ch.level || 1}`, ch.class_name].filter(Boolean).join(' · '))}</div>
+          ${hostNotes ? `<div style="margin-top:6px;"><div class="mini" style="white-space:pre-wrap;">Host notes: ${escapeHtml(hostNotes)}</div><div style="margin-top:6px;"><button class="btn" id="btnEditHostNotes">Edit Notes</button></div></div>` : `<div style="margin-top:6px;"><button class="btn" id="btnEditHostNotes">Add Notes</button></div>`}
         </div>
         <div style="text-align:right;">
           <div style="font-size:22px; font-weight:700; color:${hpCol2};">${hpC} / ${hpM2} HP</div>
@@ -495,8 +578,18 @@ function renderHostFullView() {
         </div>
       </div>
       <div class="card" style="padding:0; overflow:hidden;">
-        <div class="tabs" style="padding:10px 14px 0; border-bottom:1px solid var(--line);">
-          ${tabs.map(t => `<div class="tab ${t.id === mpDetailTab ? 'active' : ''}" data-dtab="${t.id}">${t.label}</div>`).join('')}
+        <div style="display:flex; justify-content:center; padding:6px 10px; overflow-x:auto; scrollbar-width:none;">
+          <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
+            ${tabs.map(t => {
+      const rgb = tabRgb(t.id);
+      const isActive = t.id === mpDetailTab;
+      return `<button class="tab ${isActive?'active':''}" data-dtab="${t.id}"
+                style="white-space:nowrap; padding:10px 14px; font-size:14px;
+                  color:rgba(${rgb},1);
+                  ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);` }"
+            >${t.label}</button>`;
+    }).join('')}
+          </div>
         </div>
         <div style="padding:16px;">
           ${tabContent()}
@@ -511,6 +604,21 @@ function renderHostFullView() {
   inner.querySelectorAll('[data-dtab]').forEach(el => {
     el.onclick = () => { mpDetailTab = el.dataset.dtab; renderHostFullView(); };
   });
+  const editBtn = inner.querySelector('#btnEditHostNotes');
+  if (editBtn) editBtn.onclick = () => {
+    const existing = mpPlayerNotes[mpViewingPlayer] || (mpPlayerConns[mpViewingPlayer] && mpPlayerConns[mpViewingPlayer].notes) || '';
+    const val = prompt('Host notes for player (saved locally):', existing || '');
+    if (val == null) return;
+    try {
+      mpPlayerNotes[mpViewingPlayer] = String(val);
+      localStorage.setItem(MP_PLAYER_NOTES_KEY, JSON.stringify(mpPlayerNotes));
+      if (mpPlayerConns[mpViewingPlayer] && mpPlayerConns[mpViewingPlayer].conn && mpPlayerConns[mpViewingPlayer].conn.open) {
+        mpPlayerConns[mpViewingPlayer].conn.send({ type: 'host_notes', notes: String(val) });
+        mpPlayerConns[mpViewingPlayer].notes = String(val);
+      }
+    } catch (e) {}
+    renderHostFullView();
+  };
 }
 
 function renderCharacterDetails(ch) {
