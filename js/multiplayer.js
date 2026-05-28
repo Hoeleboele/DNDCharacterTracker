@@ -16,7 +16,7 @@ function startHost(){
 
   // Top-level host starter (also used for reconnects)
   if (typeof mpTryHost === 'undefined') {
-    window.mpTryHost = function(code){
+    window.mpTryHost = function(code, allowFallback = true){
       mpRoomCode = code;
       if (mpPeer) { try { mpPeer.destroy(); } catch(_){} }
       mpPeer = new Peer(code);
@@ -31,7 +31,12 @@ function startHost(){
       });
       mpPeer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
-          mpTryHost(genCode());
+          if (allowFallback) {
+            mpTryHost(genCode(), true);
+          } else {
+            setLandingStatus('Room code unavailable — another host may still be active.');
+            gameMode = null;
+          }
         } else {
           setLandingStatus('Error: ' + (err.message || err.type));
           gameMode = null;

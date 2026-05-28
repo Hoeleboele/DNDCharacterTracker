@@ -16,8 +16,8 @@
     hostBtn.textContent = '↻ Reconnect';
     hostBtn.onclick = () => {
       if (typeof mpTryHost === 'function') {
-        // attempt to reuse previous room code
-        mpTryHost(savedRoom);
+        // attempt to reuse previous room code, but do not fall back to a new code
+        mpTryHost(savedRoom, false);
       } else {
         startHost();
       }
