@@ -10,7 +10,22 @@
   document.getElementById('landingJoinForm').style.display = 'none';
   document.getElementById('mpCodeInput').value = '';
 
-  document.getElementById('btnHost').onclick = startHost;
+  const hostBtn = document.getElementById('btnHost');
+  const savedRoom = (function(){ try { return localStorage.getItem('mpRoomCode'); } catch(_) { return null; } })();
+  if (savedRoom) {
+    hostBtn.textContent = '↻ Reconnect';
+    hostBtn.onclick = () => {
+      if (typeof mpTryHost === 'function') {
+        // attempt to reuse previous room code
+        mpTryHost(savedRoom);
+      } else {
+        startHost();
+      }
+    };
+  } else {
+    hostBtn.textContent = 'Host a Game';
+    hostBtn.onclick = startHost;
+  }
   document.getElementById('btnChooseChar').onclick = () => showCharPicker();
   updateAuthBar();
 
@@ -457,6 +472,7 @@ function returnToMenu(){
   mpPlayerConns = {};
   mpExpandedPlayer = null;
   mpRoomCode = '';
+  try { localStorage.removeItem('mpRoomCode'); } catch(_) {}
   gameMode = null;
   document.getElementById('hostView').style.display = 'none';
   document.querySelector('.app').style.display = 'none';

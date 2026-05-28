@@ -22,6 +22,7 @@ function startHost(){
       mpPeer = new Peer(code);
       mpPeer.on('open', () => {
         mpRoomCode = mpPeer.id.toUpperCase();
+        try { localStorage.setItem('mpRoomCode', mpRoomCode); } catch(_) {}
         document.getElementById('landingOverlay').style.display = 'none';
         document.querySelector('.app').style.display = 'none';
         document.getElementById('hostView').style.display = 'block';
