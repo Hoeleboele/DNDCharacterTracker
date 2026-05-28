@@ -437,6 +437,10 @@ function showModePicker(charName){
   document.getElementById('btnGoSolo').onclick = startSolo;
 
   document.getElementById('btnGoJoin').onclick = () => {
+    const savedRoom = (function(){ try { return localStorage.getItem('mpLastRoomCode') || localStorage.getItem('mpRoomCode'); } catch(_) { return null; } })();
+    const mpInput = document.getElementById('mpCodeInput');
+    if (savedRoom) mpInput.value = savedRoom.toUpperCase();
+    mpInput.focus();
     document.getElementById('landingJoinForm').style.display = 'block';
   };
 

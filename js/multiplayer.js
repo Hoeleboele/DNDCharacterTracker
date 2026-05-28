@@ -62,6 +62,7 @@ function joinGame(code) {
   setLandingStatus('Connecting…');
   gameMode = 'player';
   mpRoomCode = code;
+  try { localStorage.setItem('mpLastRoomCode', mpRoomCode); } catch (_) { }
   if (mpPeer) { try { mpPeer.destroy(); } catch (_) { } }
   mpPeer = new Peer();
   mpPeer.on('open', () => {
