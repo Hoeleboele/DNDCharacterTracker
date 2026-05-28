@@ -22,7 +22,7 @@ function startHost(){
       mpPeer = new Peer(code);
       mpPeer.on('open', () => {
         mpRoomCode = mpPeer.id.toUpperCase();
-        try { localStorage.setItem('mpRoomCode', mpRoomCode); } catch(_) {}
+        try { localStorage.setItem('mpRoomCode', mpRoomCode); localStorage.setItem('mpLastRoomCode', mpRoomCode); } catch(_) {}
         document.getElementById('landingOverlay').style.display = 'none';
         document.querySelector('.app').style.display = 'none';
         document.getElementById('hostView').style.display = 'block';
@@ -180,7 +180,9 @@ function renderHostView(){
     mpExpandedPlayer = null;
     mpViewingPlayer = null;
     mpRefreshing = false;
-    if (typeof mpTryHost === 'function') mpTryHost(code);
+    // Try to reclaim the original room code. If it's unavailable, do not
+    // silently fall back to a different code — surface the error instead.
+    if (typeof mpTryHost === 'function') mpTryHost(code, false);
   };
 }
 

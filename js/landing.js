@@ -11,7 +11,7 @@
   document.getElementById('mpCodeInput').value = '';
 
   const hostBtn = document.getElementById('btnHost');
-  const savedRoom = (function(){ try { return localStorage.getItem('mpRoomCode'); } catch(_) { return null; } })();
+  const savedRoom = (function(){ try { return localStorage.getItem('mpLastRoomCode') || localStorage.getItem('mpRoomCode'); } catch(_) { return null; } })();
   if (savedRoom) {
     hostBtn.textContent = '↻ Reconnect';
     hostBtn.onclick = () => {
