@@ -483,7 +483,7 @@ function returnToMenu(){
   if (mpPeer) { try { mpPeer.destroy(); } catch(_){} mpPeer = null; }
   mpHostConn = null;
   mpPlayerConns = {};
-  mpExpandedPlayer = null;
+  mpExpandedPlayers = new Set();
   mpRoomCode = '';
   try { localStorage.removeItem('mpRoomCode'); } catch(_) {}
   gameMode = null;

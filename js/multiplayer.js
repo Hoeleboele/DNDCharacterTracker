@@ -3,7 +3,7 @@
 let mpHostConn = null;     // player → host connection
 let mpPlayerConns = {};    // host's map: peerId → { conn, state }
 let mpRoomCode = '';
-let mpExpandedPlayer = null;
+let mpExpandedPlayers = new Set();
 let mpRefreshing = false;
 let mpViewingPlayer = null;
 let mpDetailTab = 'overview';
@@ -12,7 +12,7 @@ function startHost() {
   setLandingStatus('Starting…');
   gameMode = 'host';
   mpPlayerConns = {};
-  mpExpandedPlayer = null;
+  mpExpandedPlayers = new Set();
 
   mpTryHost(genCode());
 }
@@ -140,7 +140,7 @@ function renderHostView() {
   inner.querySelectorAll('[data-expand]').forEach(btn => {
     btn.onclick = () => {
       const pid = btn.dataset.expand;
-      mpExpandedPlayer = mpExpandedPlayer === pid ? null : pid;
+      if (mpExpandedPlayers.has(pid)) mpExpandedPlayers.delete(pid); else mpExpandedPlayers.add(pid);
       renderHostView();
     };
   });
@@ -173,7 +173,7 @@ function renderHostView() {
   if (reconnectBtn) reconnectBtn.onclick = () => {
     const code = mpRoomCode || genCode();
     mpPlayerConns = {};
-    mpExpandedPlayer = null;
+    mpExpandedPlayers = new Set();
     mpViewingPlayer = null;
     mpRefreshing = false;
     // Try to reclaim the original room code. If it's unavailable, do not
@@ -184,7 +184,7 @@ function renderHostView() {
 
 function renderPlayerCard(pid, pd) {
   const ch = pd.state ? pd.state.character : null;
-  const isExpanded = mpExpandedPlayer === pid;
+  const isExpanded = mpExpandedPlayers.has(pid);
 
   if (!ch) return `
     <div class="player-card">
