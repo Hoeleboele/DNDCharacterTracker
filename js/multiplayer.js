@@ -14,41 +14,45 @@ function startHost(){
   mpPlayerConns = {};
   mpExpandedPlayer = null;
 
-  function tryHost(code){
-    mpRoomCode = code;
-    if (mpPeer) { try { mpPeer.destroy(); } catch(_){} }
-    mpPeer = new Peer(code);
-    mpPeer.on('open', () => {
-      mpRoomCode = mpPeer.id.toUpperCase();
-      document.getElementById('landingOverlay').style.display = 'none';
-      document.querySelector('.app').style.display = 'none';
-      document.getElementById('hostView').style.display = 'block';
-      startAutosave();
-      renderHostView();
-    });
-    mpPeer.on('error', (err) => {
-      if (err.type === 'unavailable-id') {
-        tryHost(genCode());
-      } else {
-        setLandingStatus('Error: ' + (err.message || err.type));
-        gameMode = null;
-      }
-    });
-    mpPeer.on('connection', (conn) => {
-      mpPlayerConns[conn.peer] = { conn, state: null };
-      conn.on('data', (data) => {
-        if (data.type === 'sync') {
-          mpPlayerConns[conn.peer].state = data.state;
-          mpRefreshing = false;
-          renderHostView();
+  // Top-level host starter (also used for reconnects)
+  if (typeof mpTryHost === 'undefined') {
+    window.mpTryHost = function(code){
+      mpRoomCode = code;
+      if (mpPeer) { try { mpPeer.destroy(); } catch(_){} }
+      mpPeer = new Peer(code);
+      mpPeer.on('open', () => {
+        mpRoomCode = mpPeer.id.toUpperCase();
+        document.getElementById('landingOverlay').style.display = 'none';
+        document.querySelector('.app').style.display = 'none';
+        document.getElementById('hostView').style.display = 'block';
+        startAutosave();
+        renderHostView();
+      });
+      mpPeer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          mpTryHost(genCode());
+        } else {
+          setLandingStatus('Error: ' + (err.message || err.type));
+          gameMode = null;
         }
       });
-      conn.on('close', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
-      conn.on('error', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
-      renderHostView();
-    });
+      mpPeer.on('connection', (conn) => {
+        mpPlayerConns[conn.peer] = { conn, state: null };
+        conn.on('data', (data) => {
+          if (data.type === 'sync') {
+            mpPlayerConns[conn.peer].state = data.state;
+            mpRefreshing = false;
+            renderHostView();
+          }
+        });
+        conn.on('close', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
+        conn.on('error', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
+        renderHostView();
+      });
+    };
   }
-  tryHost(genCode());
+
+  mpTryHost(genCode());
 }
 
 
@@ -124,6 +128,7 @@ function renderHostView(){
         ${mpRefreshing
           ? `<span class="mini" style="color:var(--warn);">⏳ Retrieving data…</span>`
           : `<button class="btn" id="btnHostRefresh">↺ Refresh</button>`}
+        <button class="btn" id="btnHostReconnect">↻ Reconnect</button>
         <button class="btn" id="btnHostMenu">Main Menu</button>
       </div>
     </div>
@@ -161,6 +166,16 @@ function renderHostView(){
 
   const menuBtn = inner.querySelector('#btnHostMenu');
   if (menuBtn) menuBtn.onclick = () => returnToMenu();
+
+  const reconnectBtn = inner.querySelector('#btnHostReconnect');
+  if (reconnectBtn) reconnectBtn.onclick = () => {
+    const code = mpRoomCode || genCode();
+    mpPlayerConns = {};
+    mpExpandedPlayer = null;
+    mpViewingPlayer = null;
+    mpRefreshing = false;
+    if (typeof mpTryHost === 'function') mpTryHost(code);
+  };
 }
 
 function renderPlayerCard(pid, pd){
