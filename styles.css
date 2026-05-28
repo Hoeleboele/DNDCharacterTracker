@@ -24,12 +24,8 @@
     }
     .landing-title{ font-size:28px; font-weight:700; margin-bottom:6px; }
     .landing-sub{ color:var(--muted); font-size:14px; margin-bottom:28px; }
-    .landing-btns{ display:flex; flex-direction:row; gap:10px; align-items:center; flex-wrap:wrap; }
-    .landing-btn{ font-size:15px; padding:13px 16px !important; width:auto; min-width:120px; }
-    @media (max-width:420px){
-      .landing-btns{ gap:8px; }
-      .landing-btn{ min-width:0; flex:1 1 auto; }
-    }
+    .landing-btns{ display:flex; flex-direction:column; gap:10px; }
+    .landing-btn{ font-size:15px; padding:13px !important; width:100%; }
 
     /* ── Host DM view ────────────────────────────────────────────── */
     #hostView{
