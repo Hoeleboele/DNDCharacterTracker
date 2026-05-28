@@ -99,6 +99,20 @@
       overflow:hidden;
     }
 
+    /* Host view tab bar mirrors the main app bottom tab bar */
+    #hostTabsCard{
+      position:fixed; bottom:0; left:0; right:0; z-index:20;
+      background:rgba(11,15,20,.97);
+      backdrop-filter:blur(8px);
+      border-radius:0;
+      border-top:1px solid var(--line);
+      border-left:none; border-right:none; border-bottom:none;
+      overflow:hidden;
+    }
+
+    .player-notes textarea{ min-height:90px; resize:vertical; font-family:var(--mono); font-size:13px; }
+    .player-notes{ transition:all .15s ease; }
+
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .col{ display:flex; flex-direction:column; gap:8px; }
 

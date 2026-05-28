@@ -425,6 +425,40 @@ function renderTabs(){
   });
 }
 
+// Reusable tab bar renderer for embedding tab UI elsewhere (e.g. host view)
+function renderTabBar(containerId, allTabs, activeId, onSwitch) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Mobile-style compact bar (matches renderTabs mobile layout)
+  const favSet = new Set(favTabs || []);
+  const visibleTabs = allTabs.filter(t => !t.hide);
+
+  const activeLabel = (visibleTabs.find(t => t.id === activeId) || {}).label || '';
+  const aRgbM = tabRgb(activeId);
+  container.innerHTML = `
+    <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center; padding:6px 10px;">
+      ${visibleTabs.map(t => {
+        const rgb = tabRgb(t.id);
+        const isActive = t.id === activeId;
+        return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
+          style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;
+            color:rgba(${rgb},1);
+            ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
+        >${t.label}</button>`;
+      }).join('')}
+    </div>
+  `;
+  container.style.background = `rgba(${aRgbM},0.06)`;
+
+  container.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.tab;
+      if (typeof onSwitch === 'function') onSwitch(id);
+    };
+  });
+}
+
 function renderContent(){
   const c = state.character;
   if (activeTab === 'overview') renderOverview(c);

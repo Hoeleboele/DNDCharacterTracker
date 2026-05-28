@@ -4,6 +4,7 @@ let mpHostConn = null;     // player → host connection
 let mpPlayerConns = {};    // host's map: peerId → { conn, state }
 let mpRoomCode = '';
 let mpExpandedPlayers = new Set();
+let mpNotesExpanded = new Set();
 let mpRefreshing = false;
 let mpViewingPlayer = null;
 let mpDetailTab = 'overview';
@@ -184,18 +185,33 @@ function renderHostView() {
   inner.querySelectorAll('[data-notes]').forEach(btn => {
     btn.onclick = () => {
       const pid = btn.dataset.notes;
-      const existing = (mpPlayerConns[pid] && mpPlayerConns[pid].notes) || mpPlayerNotes[pid] || '';
-      const val = prompt('Host notes for player (saved locally):', existing || '');
-      if (val == null) return;
-      // Save to host fallback store and send the note to the player if connected.
+      if (mpNotesExpanded.has(pid)) mpNotesExpanded.delete(pid); else mpNotesExpanded.add(pid);
+      renderHostView();
+    };
+  });
+
+  // Save/close handlers for inline notes textarea
+  inner.querySelectorAll('[data-notes-save]').forEach(btn => {
+    btn.onclick = () => {
+      const pid = btn.dataset.notesSave;
+      const ta = document.getElementById('notesArea-' + pid);
+      const val = ta ? String(ta.value || '') : '';
       try {
-        mpPlayerNotes[pid] = String(val);
+        mpPlayerNotes[pid] = val;
         localStorage.setItem(MP_PLAYER_NOTES_KEY, JSON.stringify(mpPlayerNotes));
         if (mpPlayerConns[pid] && mpPlayerConns[pid].conn && mpPlayerConns[pid].conn.open) {
-          mpPlayerConns[pid].conn.send({ type: 'host_notes', notes: String(val) });
-          mpPlayerConns[pid].notes = String(val);
+          mpPlayerConns[pid].conn.send({ type: 'host_notes', notes: val });
+          mpPlayerConns[pid].notes = val;
         }
-      } catch (e) { }
+      } catch (e) {}
+      mpNotesExpanded.delete(pid);
+      renderHostView();
+    };
+  });
+  inner.querySelectorAll('[data-notes-close]').forEach(btn => {
+    btn.onclick = () => {
+      const pid = btn.dataset.notesClose;
+      mpNotesExpanded.delete(pid);
       renderHostView();
     };
   });
@@ -227,6 +243,30 @@ function renderHostView() {
     // silently fall back to a different code — surface the error instead.
     if (typeof mpTryHost === 'function') mpTryHost(code, false);
   };
+
+  // Render a compact tab bar in the host view as well
+  try {
+    let hostTabs = document.getElementById('hostTabsCard');
+    if (!hostTabs) {
+      hostTabs = document.createElement('div');
+      hostTabs.id = 'hostTabsCard';
+      document.getElementById('hostView').appendChild(hostTabs);
+    }
+    // Use the same tabs as the main app (so host can quickly jump to similar views if desired)
+    const allTabs = [
+      { id:'overview',   label:'Overview' },
+      { id:'stats',      label:'Stats' },
+      { id:'class_race', label:'Character' },
+      { id:'features',   label:'Features' },
+      { id:'spells',     label:'Spells' },
+      { id:'combat',     label:'Combat' },
+      { id:'conditions_exhaustion', label:'Conditions' },
+      { id:'inventory',  label:'Inventory' },
+      { id:'camp',       label:'Camp' },
+      { id:'settings',   label:'Settings' },
+    ];
+    renderTabBar('hostTabsCard', allTabs, activeTab || 'overview', (id) => { switchTab(id); });
+  } catch (e) {}
 }
 
 function renderPlayerCard(pid, pd) {
@@ -290,6 +330,15 @@ function renderPlayerCard(pid, pd) {
         ${isExpanded ? `<button class="btn" data-fullview="${pid}">Full Overview</button>` : ''}
         <button class="btn" data-notes="${pid}">Notes</button>
       </div>
+      ${mpNotesExpanded.has(pid) ? `
+        <div class="player-notes" style="padding:12px 16px; border-top:1px solid var(--line); background:rgba(8,12,18,.45);">
+          <textarea id="notesArea-${pid}">${escapeHtml((pd && pd.notes) || mpPlayerNotes[pid] || '')}</textarea>
+          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+            <button class="btn" data-notes-save="${pid}">Save</button>
+            <button class="btn" data-notes-close="${pid}">Close</button>
+          </div>
+        </div>
+      ` : ''}
     </div>`;
 }
 
@@ -578,19 +627,6 @@ function renderHostFullView() {
         </div>
       </div>
       <div class="card" style="padding:0; overflow:hidden;">
-        <div style="display:flex; justify-content:center; padding:6px 10px; overflow-x:auto; scrollbar-width:none;">
-          <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
-            ${tabs.map(t => {
-      const rgb = tabRgb(t.id);
-      const isActive = t.id === mpDetailTab;
-      return `<button class="tab ${isActive?'active':''}" data-dtab="${t.id}"
-                style="white-space:nowrap; padding:10px 14px; font-size:14px;
-                  color:rgba(${rgb},1);
-                  ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);` }"
-            >${t.label}</button>`;
-    }).join('')}
-          </div>
-        </div>
         <div style="padding:16px;">
           ${tabContent()}
         </div>
@@ -619,6 +655,18 @@ function renderHostFullView() {
     } catch (e) {}
     renderHostFullView();
   };
+
+  // Render bottom tab bar inside host view (reuse renderTabBar helper)
+  try {
+    // Ensure host tab container exists
+    let hostTabs = document.getElementById('hostTabsCard');
+    if (!hostTabs) {
+      hostTabs = document.createElement('div');
+      hostTabs.id = 'hostTabsCard';
+      document.getElementById('hostView').appendChild(hostTabs);
+    }
+    renderTabBar('hostTabsCard', tabs, mpDetailTab, (id) => { mpDetailTab = id; renderHostFullView(); });
+  } catch (e) {}
 }
 
 function renderCharacterDetails(ch) {
