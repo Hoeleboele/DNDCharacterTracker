@@ -140,6 +140,12 @@ function renderHostView() {
   const inner = document.getElementById('hostViewInner');
   if (!inner) return;
 
+  // Ensure the tab bar used for full-detail view is removed in the summary host view.
+  try {
+    const hostTabsCard = document.getElementById('hostTabsCard');
+    if (hostTabsCard && hostTabsCard.parentNode) hostTabsCard.parentNode.removeChild(hostTabsCard);
+  } catch (e) {}
+
   const playersHtml = players.length === 0
     ? `<div class="card" style="text-align:center; padding:48px; max-width:500px; margin:0 auto;">
          <div style="font-size:48px; margin-bottom:16px;">⏳</div>
@@ -244,29 +250,7 @@ function renderHostView() {
     if (typeof mpTryHost === 'function') mpTryHost(code, false);
   };
 
-  // Render a compact tab bar in the host view as well
-  try {
-    let hostTabs = document.getElementById('hostTabsCard');
-    if (!hostTabs) {
-      hostTabs = document.createElement('div');
-      hostTabs.id = 'hostTabsCard';
-      document.getElementById('hostView').appendChild(hostTabs);
-    }
-    // Use the same tabs as the main app (so host can quickly jump to similar views if desired)
-    const allTabs = [
-      { id:'overview',   label:'Overview' },
-      { id:'stats',      label:'Stats' },
-      { id:'class_race', label:'Character' },
-      { id:'features',   label:'Features' },
-      { id:'spells',     label:'Spells' },
-      { id:'combat',     label:'Combat' },
-      { id:'conditions_exhaustion', label:'Conditions' },
-      { id:'inventory',  label:'Inventory' },
-      { id:'camp',       label:'Camp' },
-      { id:'settings',   label:'Settings' },
-    ];
-    renderTabBar('hostTabsCard', allTabs, activeTab || 'overview', (id) => { switchTab(id); });
-  } catch (e) {}
+  
 }
 
 function renderPlayerCard(pid, pd) {
@@ -302,6 +286,22 @@ function renderPlayerCard(pid, pd) {
     `PP ${pp}`,
   ].map(s => `<span class="pill" style="font-size:12px;">${s}</span>`).join('');
 
+  // Compact resource/feature pills for host overview cards
+  const pillLimit = 6;
+  const resourcesList = Array.isArray(ch.resources) ? ch.resources : (ch.resources || []);
+  const featuresList = Array.isArray(ch.features) ? ch.features : (ch.features || []);
+  function buildPills(list) {
+    if (!list || list.length === 0) return '';
+    const visible = list.slice(0, pillLimit).map(it => {
+      const name = (it && (it.name || it.title)) || (typeof it === 'string' ? it : '');
+      return `<span class="pill" style="font-size:12px;">${escapeHtml(String(name || ''))}</span>`;
+    }).join('');
+    const more = Math.max(0, list.length - pillLimit);
+    return visible + (more ? `<span class="pill" style="font-size:12px;">+${more} more</span>` : '');
+  }
+  const resourcesPills = buildPills(resourcesList);
+  const featuresPills = buildPills(featuresList);
+
   return `
     <div class="player-card">
       <div class="player-card-header">
@@ -319,6 +319,8 @@ function renderPlayerCard(pid, pd) {
         <div style="margin-top:10px; height:8px; border-radius:4px; background:var(--line); overflow:hidden;">
           <div style="height:100%; width:${hpPct}%; background:${hpColor}; border-radius:4px;"></div>
         </div>
+        ${resourcesPills ? `<div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">${resourcesPills}</div>` : ''}
+        ${featuresPills ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${featuresPills}</div>` : ''}
         ${conditions.length ? `
           <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
             ${conditions.map(c => `<span class="pill" style="background:rgba(255,107,107,.15); color:var(--bad);">${escapeHtml(c)}</span>`).join('')}
