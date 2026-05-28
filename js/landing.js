@@ -12,19 +12,32 @@
 
   const hostBtn = document.getElementById('btnHost');
   const savedRoom = (function(){ try { return localStorage.getItem('mpLastRoomCode') || localStorage.getItem('mpRoomCode'); } catch(_) { return null; } })();
+
+  // Ensure host button always starts a fresh host session
+  hostBtn.textContent = 'Host a Game';
+  hostBtn.onclick = startHost;
+
+  // Create or update a separate Reconnect button (placed to the right)
+  let reconnectBtn = document.getElementById('btnReconnect');
+  if (!reconnectBtn) {
+    reconnectBtn = document.createElement('button');
+    reconnectBtn.className = 'btn landing-btn';
+    reconnectBtn.id = 'btnReconnect';
+    reconnectBtn.style.marginLeft = 'auto';
+    document.getElementById('landingMainBtns').appendChild(reconnectBtn);
+  }
   if (savedRoom) {
-    hostBtn.textContent = '↻ Reconnect';
-    hostBtn.onclick = () => {
+    reconnectBtn.style.display = '';
+    reconnectBtn.textContent = '↻ Reconnect';
+    reconnectBtn.onclick = () => {
       if (typeof mpTryHost === 'function') {
-        // attempt to reuse previous room code, but do not fall back to a new code
         mpTryHost(savedRoom, false);
       } else {
         startHost();
       }
     };
   } else {
-    hostBtn.textContent = 'Host a Game';
-    hostBtn.onclick = startHost;
+    reconnectBtn.style.display = 'none';
   }
   document.getElementById('btnChooseChar').onclick = () => showCharPicker();
   updateAuthBar();
