@@ -286,22 +286,6 @@ function renderPlayerCard(pid, pd) {
     `PP ${pp}`,
   ].map(s => `<span class="pill" style="font-size:12px;">${s}</span>`).join('');
 
-  // Compact resource/feature pills for host overview cards
-  const pillLimit = 6;
-  const resourcesList = Array.isArray(ch.resources) ? ch.resources : (ch.resources || []);
-  const featuresList = Array.isArray(ch.features) ? ch.features : (ch.features || []);
-  function buildPills(list) {
-    if (!list || list.length === 0) return '';
-    const visible = list.slice(0, pillLimit).map(it => {
-      const name = (it && (it.name || it.title)) || (typeof it === 'string' ? it : '');
-      return `<span class="pill" style="font-size:12px;">${escapeHtml(String(name || ''))}</span>`;
-    }).join('');
-    const more = Math.max(0, list.length - pillLimit);
-    return visible + (more ? `<span class="pill" style="font-size:12px;">+${more} more</span>` : '');
-  }
-  const resourcesPills = buildPills(resourcesList);
-  const featuresPills = buildPills(featuresList);
-
   return `
     <div class="player-card">
       <div class="player-card-header">
@@ -319,8 +303,6 @@ function renderPlayerCard(pid, pd) {
         <div style="margin-top:10px; height:8px; border-radius:4px; background:var(--line); overflow:hidden;">
           <div style="height:100%; width:${hpPct}%; background:${hpColor}; border-radius:4px;"></div>
         </div>
-        ${resourcesPills ? `<div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">${resourcesPills}</div>` : ''}
-        ${featuresPills ? `<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${featuresPills}</div>` : ''}
         ${conditions.length ? `
           <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
             ${conditions.map(c => `<span class="pill" style="background:rgba(255,107,107,.15); color:var(--bad);">${escapeHtml(c)}</span>`).join('')}
@@ -368,18 +350,6 @@ function renderHostFullView() {
   const disadv = ch.skill_disadvantages || [];
   const wisM = Math.floor((toInt(as.wis, 10) - 10) / 2);
   const pp = 10 + wisM + (profs.includes('perception') ? profBonus : 0);
-
-  const SKILLS = [
-    { key: 'acrobatics', label: 'Acrobatics', stat: 'dex' }, { key: 'animal_handling', label: 'Animal Handling', stat: 'wis' },
-    { key: 'arcana', label: 'Arcana', stat: 'int' }, { key: 'athletics', label: 'Athletics', stat: 'str' },
-    { key: 'deception', label: 'Deception', stat: 'cha' }, { key: 'history', label: 'History', stat: 'int' },
-    { key: 'insight', label: 'Insight', stat: 'wis' }, { key: 'intimidation', label: 'Intimidation', stat: 'cha' },
-    { key: 'investigation', label: 'Investigation', stat: 'int' }, { key: 'medicine', label: 'Medicine', stat: 'wis' },
-    { key: 'nature', label: 'Nature', stat: 'int' }, { key: 'perception', label: 'Perception', stat: 'wis' },
-    { key: 'performance', label: 'Performance', stat: 'cha' }, { key: 'persuasion', label: 'Persuasion', stat: 'cha' },
-    { key: 'religion', label: 'Religion', stat: 'int' }, { key: 'sleight_of_hand', label: 'Sleight of Hand', stat: 'dex' },
-    { key: 'stealth', label: 'Stealth', stat: 'dex' }, { key: 'survival', label: 'Survival', stat: 'wis' },
-  ];
 
   function tabContent() {
     if (mpDetailTab === 'overview') {

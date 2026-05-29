@@ -116,6 +116,16 @@
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .col{ display:flex; flex-direction:column; gap:8px; }
 
+    /* Utility classes */
+    .flex-row{ display:flex; align-items:center; gap:8px; }
+    .flex-row-between{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .flex-col{ display:flex; flex-direction:column; gap:4px; }
+    .flex-wrap{ display:flex; flex-wrap:wrap; gap:6px; }
+    .overlay{ position:fixed; inset:0; z-index:99; background:rgba(0,0,0,.5); }
+    .dialog{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px; z-index:100; }
+    .toggle-switch{ width:50px; height:28px; border-radius:14px; border:1px solid var(--line); background:var(--btn); cursor:pointer; position:relative; display:flex; align-items:center; }
+    .toggle-switch.on{ background:rgba(107,255,179,.15); border-color:rgba(107,255,179,.3); }
+
     h1,h2,h3{ margin:0; }
     h1{ font-size:18px; letter-spacing:.2px; }
     h2{ font-size:14px; color:var(--muted); font-weight:600; }

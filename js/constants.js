@@ -4,6 +4,27 @@ const FAV_TABS_KEY = 'dndCharTracker.favTabs';  // favorited tab IDs (max 3)
 const STARRED_FIELDS_KEY = 'dndCharTracker.starred'; // starred fields: [{key,label}]
 const SETTINGS_KEY = 'dndCharTracker.settings'; // app settings
 
+const SKILLS = [
+  { key:'acrobatics',      label:'Acrobatics',      stat:'dex' },
+  { key:'animal_handling', label:'Animal Handling',  stat:'wis' },
+  { key:'arcana',          label:'Arcana',           stat:'int' },
+  { key:'athletics',       label:'Athletics',        stat:'str' },
+  { key:'deception',       label:'Deception',        stat:'cha' },
+  { key:'history',         label:'History',          stat:'int' },
+  { key:'insight',         label:'Insight',          stat:'wis' },
+  { key:'intimidation',    label:'Intimidation',     stat:'cha' },
+  { key:'investigation',   label:'Investigation',    stat:'int' },
+  { key:'medicine',        label:'Medicine',         stat:'wis' },
+  { key:'nature',          label:'Nature',           stat:'int' },
+  { key:'perception',      label:'Perception',       stat:'wis' },
+  { key:'performance',     label:'Performance',      stat:'cha' },
+  { key:'persuasion',      label:'Persuasion',       stat:'cha' },
+  { key:'religion',        label:'Religion',         stat:'int' },
+  { key:'sleight_of_hand', label:'Sleight of Hand',  stat:'dex' },
+  { key:'stealth',         label:'Stealth',          stat:'dex' },
+  { key:'survival',        label:'Survival',         stat:'wis' },
+];
+
 const EXAMPLE = {
   schema: 'dnd-char-tracker@1',
   exported_at: new Date().toISOString(),

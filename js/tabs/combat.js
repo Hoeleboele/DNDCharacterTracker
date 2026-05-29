@@ -1,4 +1,43 @@
-﻿function renderCombat(c){
+﻿// ── Picker factory ────────────────────────────────────────────────────
+function openPicker({ pickerId, insertAfterId, items, onSelect, onManual, onCancel, title, manualLabel = '+ Manual entry' }) {
+  const existing = document.getElementById(pickerId);
+  if (existing) { existing.remove(); return; }
+
+  const picker = document.createElement('div');
+  picker.id = pickerId;
+  picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
+  
+  picker.innerHTML = `
+    ${items.length ? `<div class="mini" style="font-weight:600;">${title}</div>
+      ${items.map((item, idx) => `
+        <button class="btn" data-pick-idx="${idx}" style="text-align:left;">
+          ${escapeHtml(item.label)}${item.subtitle ? ` <span class="muted" style="font-size:0.85em;">${item.subtitle}</span>` : ''}
+          ${item.detail ? `<div class="mini" style="margin-top:4px;">${item.detail}</div>` : ''}
+        </button>
+      `).join('')}
+      <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>` : ''}
+    ${onManual ? `<button class="btn" id="btnPickManual${pickerId}">+ ${manualLabel}</button>` : ''}
+    <button class="btn danger" id="btnPickCancel${pickerId}">Cancel</button>
+  `;
+  
+  $('#' + insertAfterId).insertAdjacentElement('afterend', picker);
+
+  picker.querySelectorAll('[data-pick-idx]').forEach(btn => btn.onclick = () => {
+    const idx = toInt(btn.dataset.pickIdx, 0);
+    onSelect(items[idx], idx);
+  });
+
+  if (onManual) {
+    document.getElementById('btnPickManual' + pickerId).onclick = () => {
+      onManual();
+      picker.remove();
+    };
+  }
+
+  document.getElementById('btnPickCancel' + pickerId).onclick = () => picker.remove();
+}
+
+function renderCombat(c){
   const effects = computeExhaustionEffects(c);
   const hpMax = effects.effectiveHpMax ?? (c.hp.max || 1);
   const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
@@ -140,43 +179,30 @@
     const equippedWeapons = ((c.inventory || {}).items || [])
       .filter(it => it.type === 'weapon' && it.equipped);
 
-    const existingPicker = document.getElementById('weaponPicker');
-    if (existingPicker) { existingPicker.remove(); return; }
+    const items = equippedWeapons.map(w => ({
+      label: escapeHtml(w.name),
+      subtitle: w.notes ? `(${escapeHtml(w.notes)})` : null
+    }));
 
-    const picker = document.createElement('div');
-    picker.id = 'weaponPicker';
-    picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
-    picker.innerHTML = `
-      ${equippedWeapons.length ? `
-        <div class="mini" style="font-weight:600;">Add from equipped weapon:</div>
-        ${equippedWeapons.map((w,idx) => `
-          <button class="btn" data-pick="${idx}" style="text-align:left;">
-            ${escapeHtml(w.name)}${w.notes ? ` <span class="muted" style="font-size:0.85em;">(${escapeHtml(w.notes)})</span>` : ''}
-          </button>
-        `).join('')}
-        <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>
-      ` : ''}
-      <button class="btn" id="btnPickManual">+ Manual entry</button>
-      <button class="btn danger" id="btnPickCancel">Cancel</button>
-    `;
-    $('#btnAddAttack').insertAdjacentElement('afterend', picker);
-
-    picker.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = () => {
-      const w = equippedWeapons[toInt(btn.dataset.pick, 0)];
-      c.attacks = c.attacks || [];
-      c.attacks.push({ name: w.name, to_hit: defaultToHit, damage: w.notes || '', notes: '' });
-      picker.remove();
-      render();
+    openPicker({
+      pickerId: 'weaponPicker',
+      insertAfterId: 'btnAddAttack',
+      items,
+      title: 'Add from equipped weapon:',
+      manualLabel: 'Manual entry',
+      onSelect: (item, idx) => {
+        const w = equippedWeapons[idx];
+        c.attacks = c.attacks || [];
+        c.attacks.push({ name: w.name, to_hit: defaultToHit, damage: w.notes || '', notes: '' });
+        render();
+      },
+      onManual: () => {
+        c.attacks = c.attacks || [];
+        c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
+        render();
+      },
+      onCancel: () => {}
     });
-
-    document.getElementById('btnPickManual').onclick = () => {
-      c.attacks = c.attacks || [];
-      c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
-      picker.remove();
-      render();
-    };
-
-    document.getElementById('btnPickCancel').onclick = () => picker.remove();
   };
 
   
@@ -186,114 +212,99 @@
     const actionFeatures = (c.features || []).map((f, idx) => ({ ...f, _idx: idx })).filter(f => f.is_action);
     const actionResources = (c.resources || []).map((r, idx) => ({ ...r, _idx: idx })).filter(r => r.is_action);
 
-    const existingPicker = document.getElementById('actionPicker');
-    if (existingPicker) { existingPicker.remove(); return; }
+    const items = [
+      ...actionFeatures.map(f => ({
+        label: escapeHtml(f.name),
+        subtitle: 'Feature',
+        detail: f.description ? escapeHtml(f.description) : null,
+        _type: 'feature',
+        _idx: f._idx
+      })),
+      ...actionResources.map(r => ({
+        label: escapeHtml(r.name),
+        subtitle: 'Resource',
+        detail: r.notes ? escapeHtml(r.notes) : null,
+        _type: 'resource',
+        _idx: r._idx
+      }))
+    ];
 
-    const picker = document.createElement('div');
-    picker.id = 'actionPicker';
-    picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
-    picker.innerHTML = `
-      ${actionFeatures.length ? `<div class="mini" style="font-weight:600;">Add from Features (Action):</div>
-        ${actionFeatures.map((f) => `
-          <button class="btn" data-pick-type="feature" data-pick-idx="${f._idx}" style="text-align:left;">
-            ${escapeHtml(f.name)} <span class="muted" style="font-size:0.85em;">Feature</span>
-            ${f.description ? `<div class="mini" style="margin-top:4px;">${escapeHtml(f.description)}</div>` : ''}
-          </button>
-        `).join('')}` : ''}
-      ${actionResources.length ? `<div class="mini" style="font-weight:600; margin-top:6px;">Add from Resources (Action):</div>
-        ${actionResources.map((r) => `
-          <button class="btn" data-pick-type="resource" data-pick-idx="${r._idx}" style="text-align:left;">
-            ${escapeHtml(r.name)} <span class="muted" style="font-size:0.85em;">Resource</span>
-            ${r.notes ? `<div class="mini" style="margin-top:4px;">${escapeHtml(r.notes)}</div>` : ''}
-          </button>
-        `).join('')}` : ''}
-      <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>
-      <button class="btn" id="btnPickManualAction">+ Manual entry</button>
-      <button class="btn danger" id="btnPickActionCancel">Cancel</button>
-    `;
-    $('#btnAddAction').insertAdjacentElement('afterend', picker);
-
-    picker.querySelectorAll('[data-pick-type]').forEach(btn => btn.onclick = () => {
-      const type = btn.dataset.pickType;
-      const idx = toInt(btn.dataset.pickIdx, 0);
-      if (type === 'feature') {
-        const feat = c.features[idx];
-        c.actions.push({
-          name: feat.name,
-          notes: feat.description || '',
-          uses_max: feat.uses_max != null ? toInt(feat.uses_max, 0) : null,
-          uses_used: toInt(feat.uses_used, 0),
-          _src: 'feature',
-          _src_idx: idx
-        });
-      } else if (type === 'resource') {
-        const res = c.resources[idx];
-        c.actions.push({
-          name: res.name,
-          notes: res.notes || '',
-          max: toInt(res.max, 0),
-          used: toInt(res.used, 0),
-          _src: 'resource',
-          _src_idx: idx
-        });
-      }
-      picker.remove();
-      saveToLocalStorage();
-      render();
+    openPicker({
+      pickerId: 'actionPicker',
+      insertAfterId: 'btnAddAction',
+      items,
+      title: items.length ? 'Add from Features & Resources:' : '',
+      manualLabel: 'Manual entry',
+      onSelect: (item) => {
+        const type = item._type;
+        const idx = item._idx;
+        if (type === 'feature') {
+          const feat = c.features[idx];
+          c.actions.push({
+            name: feat.name,
+            notes: feat.description || '',
+            uses_max: feat.uses_max != null ? toInt(feat.uses_max, 0) : null,
+            uses_used: toInt(feat.uses_used, 0),
+            _src: 'feature',
+            _src_idx: idx
+          });
+        } else if (type === 'resource') {
+          const res = c.resources[idx];
+          c.actions.push({
+            name: res.name,
+            notes: res.notes || '',
+            max: toInt(res.max, 0),
+            used: toInt(res.used, 0),
+            _src: 'resource',
+            _src_idx: idx
+          });
+        }
+        saveToLocalStorage();
+        render();
+      },
+      onManual: () => {
+        c.actions.push({ name:'New Action', notes:'' });
+        render();
+      },
+      onCancel: () => {}
     });
-
-    document.getElementById('btnPickManualAction').onclick = () => {
-      c.actions.push({ name:'New Action', notes:'' });
-      picker.remove();
-      render();
-    };
-    document.getElementById('btnPickActionCancel').onclick = () => picker.remove();
   };
 
   if (c.spellcasting) {
     document.getElementById('btnAddCombatSpell').onclick = () => {
       const preparedSpells = (c.spellcasting.prepared_spells || []);
-      const existingPicker = document.getElementById('combatSpellPicker');
-      if (existingPicker) { existingPicker.remove(); return; }
-
-      const picker = document.createElement('div');
-      picker.id = 'combatSpellPicker';
-      picker.style.cssText = 'margin-top:8px; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column; gap:6px;';
       const cantrips = (c.spellcasting.cantrips || []);
       const allSpellOptions = [
         ...cantrips.map(sp => ({ ...sp, _type: 'cantrip' })),
         ...preparedSpells.map(sp => ({ ...sp, _type: 'prepared' }))
       ];
-      picker.innerHTML = `
-        ${allSpellOptions.length ? `<div class="mini" style="font-weight:600;">Add from spells:</div>
-        ${allSpellOptions.map((sp,idx) => `
-          <button class="btn" data-pick-spell="${idx}" style="text-align:left;">
-            ${escapeHtml(sp.name)} <span class="muted" style="font-size:0.85em;">${sp._type === 'cantrip' ? 'Cantrip' : `Lvl ${sp.level||0}`}</span>
-          </button>
-        `).join('')}
-        <div class="mini" style="margin-top:4px; font-weight:600;">Or:</div>` : ''}
-        <button class="btn" id="btnPickCustomSpell">+ Custom spell</button>
-        <button class="btn danger" id="btnSpellPickCancel">Cancel</button>
-      `;
-      document.getElementById('btnAddCombatSpell').insertAdjacentElement('afterend', picker);
 
-      picker.querySelectorAll('[data-pick-spell]').forEach(btn => btn.onclick = () => {
-        const sp = allSpellOptions[toInt(btn.dataset.pickSpell, 0)];
-        c.combat_spells = c.combat_spells || [];
-        const { _type, ...spData } = sp;
-        c.combat_spells.push({ ...spData, level: spData.level || 0 });
-        picker.remove();
-        render();
+      const items = allSpellOptions.map((sp) => ({
+        label: escapeHtml(sp.name),
+        subtitle: sp._type === 'cantrip' ? 'Cantrip' : `Lvl ${sp.level||0}`,
+        _data: sp
+      }));
+
+      openPicker({
+        pickerId: 'combatSpellPicker',
+        insertAfterId: 'btnAddCombatSpell',
+        items,
+        title: items.length ? 'Add from spells:' : '',
+        manualLabel: 'Custom spell',
+        onSelect: (item) => {
+          const sp = item._data;
+          c.combat_spells = c.combat_spells || [];
+          const { _type, ...spData } = sp;
+          c.combat_spells.push({ ...spData, level: spData.level || 0 });
+          render();
+        },
+        onManual: () => {
+          c.combat_spells = c.combat_spells || [];
+          c.combat_spells.push({ name:'New Spell', level:1, notes:'' });
+          render();
+        },
+        onCancel: () => {}
       });
-
-      document.getElementById('btnPickCustomSpell').onclick = () => {
-        c.combat_spells = c.combat_spells || [];
-        c.combat_spells.push({ name:'New Spell', level:1, notes:'' });
-        picker.remove();
-        render();
-      };
-
-      document.getElementById('btnSpellPickCancel').onclick = () => picker.remove();
     };
   }
 

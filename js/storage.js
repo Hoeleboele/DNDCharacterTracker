@@ -33,11 +33,6 @@ function stopAutosave(){
   if (autosaveInterval) { clearInterval(autosaveInterval); autosaveInterval = null; }
 }
 
-function loadFromLocalStorage(){
-  // Legacy — no longer used for initial load
-  return null;
-}
-
 function downloadJSON(){
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

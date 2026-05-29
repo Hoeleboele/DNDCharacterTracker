@@ -121,11 +121,6 @@ function safeFilename(name){
   return String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'character';
 }
 
-function toast(msg){
-  // Minimal, non-annoying: use alert for now.
-  alert(msg);
-}
-
 function setPath(obj, dotted, value){
   const parts = String(dotted).split('.');
   let cur = obj;
