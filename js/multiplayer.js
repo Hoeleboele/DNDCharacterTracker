@@ -332,11 +332,10 @@ function renderPlayerCard(pid, pd) {
     `PP ${pp}`,
   ].map(s => `<span class="pill" style="font-size:12px;">${s}</span>`).join('');
 
-  const cardStyle = isDisconnected ? 'opacity:0.55; filter:grayscale(40%);' : '';
   const footerButtonsDisabled = isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : '';
 
   return `
-    <div class="player-card" style="${cardStyle}">
+    <div class="player-card">
       <div class="player-card-header">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
           <div>
@@ -362,8 +361,8 @@ function renderPlayerCard(pid, pd) {
       </div>
       ${isExpanded ? `<div class="player-card-details">${renderCharacterDetails(ch)}</div>` : ''}
       <div class="player-card-footer">
-        <button class="btn" data-expand="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>${isExpanded ? 'Collapse' : 'View Details'}</button>
-        ${isExpanded ? `<button class="btn" data-fullview="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Full Overview</button>` : ''}
+        <button class="btn" data-expand="${pid}">${isExpanded ? 'Collapse' : 'View Details'}</button>
+        ${isExpanded ? `<button class="btn" data-fullview="${pid}">Full Overview</button>` : ''}
         <button class="btn" data-notes="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Notes</button>
       </div>
       ${mpNotesExpanded.has(pid) ? `
