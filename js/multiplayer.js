@@ -1,7 +1,7 @@
 ﻿let mpPeer = null;
 
 let mpHostConn = null;     // player → host connection
-let mpPlayerConns = {};    // host's map: peerId → { conn, state }
+let mpPlayerConns = {};    // host's map: peerId → { conn, state, notes, disconnected, disconnectedAt }
 let mpRoomCode = '';
 let mpExpandedPlayers = new Set();
 let mpNotesExpanded = new Set();
@@ -10,6 +10,7 @@ let mpViewingPlayer = null;
 let mpDetailTab = 'overview';
 const MP_PLAYER_NOTES_KEY = 'mp_player_notes_v1';
 let mpPlayerNotes = {};
+let mpDisconnectTimers = {};  // peerId → timeoutId
 
 function startHost() {
   setLandingStatus('Starting…');
@@ -51,7 +52,7 @@ function mpTryHost(code, allowFallback = true) {
     }
   });
   mpPeer.on('connection', (conn) => {
-    mpPlayerConns[conn.peer] = { conn, state: null, notes: '' };
+    mpPlayerConns[conn.peer] = { conn, state: null, notes: '', disconnected: false, disconnectedAt: null };
     // If we have a stored host-side fallback note for this player, send it now
     try {
       if (mpPlayerNotes[conn.peer]) {
@@ -61,15 +62,56 @@ function mpTryHost(code, allowFallback = true) {
     } catch (_) {}
     conn.on('data', (data) => {
       if (data.type === 'sync') {
+        // Before storing new state, check if this is a reconnect by matching character name
+        // to a disconnected slot. If found, copy notes and clean up the old slot.
+        const charName = data.state?.character?.name;
+        if (charName) {
+          for (const [oldPid, oldPd] of Object.entries(mpPlayerConns)) {
+            if (oldPd.disconnected && oldPd.state?.character?.name === charName) {
+              // Found a match! Copy notes to new slot and remove old slot
+              mpPlayerConns[conn.peer].notes = oldPd.notes;
+              if (mpDisconnectTimers[oldPid]) {
+                clearTimeout(mpDisconnectTimers[oldPid]);
+                delete mpDisconnectTimers[oldPid];
+              }
+              delete mpPlayerConns[oldPid];
+              break;
+            }
+          }
+        }
         mpPlayerConns[conn.peer].state = data.state;
+        mpPlayerConns[conn.peer].disconnected = false;
+        mpPlayerConns[conn.peer].disconnectedAt = null;
         // if the player included their locally-saved host note, use it
         if (data.host_notes != null) mpPlayerConns[conn.peer].notes = data.host_notes || '';
         mpRefreshing = false;
         renderHostView();
       }
     });
-    conn.on('close', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
-    conn.on('error', () => { delete mpPlayerConns[conn.peer]; renderHostView(); });
+    conn.on('close', () => {
+      mpPlayerConns[conn.peer].conn = null;
+      mpPlayerConns[conn.peer].disconnected = true;
+      mpPlayerConns[conn.peer].disconnectedAt = Date.now();
+      // Schedule cleanup after 10 minutes (600000 ms)
+      mpDisconnectTimers[conn.peer] = setTimeout(() => {
+        delete mpPlayerConns[conn.peer];
+        delete mpDisconnectTimers[conn.peer];
+        renderHostView();
+      }, 600000);
+      renderHostView();
+    });
+    conn.on('error', () => {
+      mpPlayerConns[conn.peer].conn = null;
+      mpPlayerConns[conn.peer].disconnected = true;
+      mpPlayerConns[conn.peer].disconnectedAt = Date.now();
+      // Schedule cleanup after 10 minutes (600000 ms)
+      mpDisconnectTimers[conn.peer] = setTimeout(() => {
+        delete mpPlayerConns[conn.peer];
+        delete mpDisconnectTimers[conn.peer];
+        renderHostView();
+      }, 600000);
+      renderHostView();
+    });
     renderHostView();
   });
 };
@@ -241,6 +283,9 @@ function renderHostView() {
   const reconnectBtn = inner.querySelector('#btnHostReconnect');
   if (reconnectBtn) reconnectBtn.onclick = () => {
     const code = mpRoomCode || genCode();
+    // Clear all pending disconnect timers before resetting
+    Object.values(mpDisconnectTimers).forEach(tid => clearTimeout(tid));
+    mpDisconnectTimers = {};
     mpPlayerConns = {};
     mpExpandedPlayers = new Set();
     mpViewingPlayer = null;
@@ -256,6 +301,7 @@ function renderHostView() {
 function renderPlayerCard(pid, pd) {
   const ch = pd.state ? pd.state.character : null;
   const isExpanded = mpExpandedPlayers.has(pid);
+  const isDisconnected = pd.disconnected || false;
 
   if (!ch) return `
     <div class="player-card">
@@ -286,12 +332,18 @@ function renderPlayerCard(pid, pd) {
     `PP ${pp}`,
   ].map(s => `<span class="pill" style="font-size:12px;">${s}</span>`).join('');
 
+  const cardStyle = isDisconnected ? 'opacity:0.55; filter:grayscale(40%);' : '';
+  const footerButtonsDisabled = isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : '';
+
   return `
-    <div class="player-card">
+    <div class="player-card" style="${cardStyle}">
       <div class="player-card-header">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
           <div>
-            <b style="font-size:18px;">${escapeHtml(ch.name || 'Unnamed')}</b>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <b style="font-size:18px;">${escapeHtml(ch.name || 'Unnamed')}</b>
+              ${isDisconnected ? `<span class="pill" style="background:rgba(255,107,107,.2); color:var(--bad); font-size:11px;">Disconnected</span>` : ''}
+            </div>
             <div class="mini" style="margin-top:2px;">${escapeHtml(meta)}</div>
             <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">${statPills}</div>
           </div>
@@ -310,15 +362,15 @@ function renderPlayerCard(pid, pd) {
       </div>
       ${isExpanded ? `<div class="player-card-details">${renderCharacterDetails(ch)}</div>` : ''}
       <div class="player-card-footer">
-        <button class="btn" data-expand="${pid}">${isExpanded ? 'Collapse' : 'View Details'}</button>
-        ${isExpanded ? `<button class="btn" data-fullview="${pid}">Full Overview</button>` : ''}
-        <button class="btn" data-notes="${pid}">Notes</button>
+        <button class="btn" data-expand="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>${isExpanded ? 'Collapse' : 'View Details'}</button>
+        ${isExpanded ? `<button class="btn" data-fullview="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Full Overview</button>` : ''}
+        <button class="btn" data-notes="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Notes</button>
       </div>
       ${mpNotesExpanded.has(pid) ? `
         <div class="player-notes" style="padding:12px 16px; border-top:1px solid var(--line); background:rgba(8,12,18,.45);">
-          <textarea id="notesArea-${pid}">${escapeHtml((pd && pd.notes) || mpPlayerNotes[pid] || '')}</textarea>
+          <textarea id="notesArea-${pid}" ${isDisconnected ? 'disabled' : ''}>${escapeHtml((pd && pd.notes) || mpPlayerNotes[pid] || '')}</textarea>
           <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-            <button class="btn" data-notes-save="${pid}">Save</button>
+            <button class="btn" data-notes-save="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Save</button>
             <button class="btn" data-notes-close="${pid}">Close</button>
           </div>
         </div>
