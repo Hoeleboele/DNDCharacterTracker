@@ -68,7 +68,7 @@
       </div>
 
       <div class="col">
-        <h2>Skills <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
+        <h2>Saving throws <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
         <div class="skill-list" style="margin-top:10px;">
           ${stats.map(s => {
             const savePro = c.saving_throw_proficiencies.includes(s.key);
@@ -86,6 +86,8 @@
           }).join('')}
 
           <div style="height:1px;background:var(--line);margin:8px 0;"></div>
+
+          <h2 style="margin-top:8px;">Skills <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
 
           ${SKILLS.map(sk => {
             const t = skillTotal(sk);
