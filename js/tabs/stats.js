@@ -32,10 +32,14 @@
             ${stats.slice(0,3).map(s => {
               const score = toInt(as[s.key], 10);
               const positive = score >= 10;
+              const isStarred = starredFields.some(f => f.key === `ability_scores.${s.key}`);
               return `
                 <div class="stat-block">
                   <div class="stat-abbr">${s.abbr}</div>
-                  <div class="stat-label">${s.label}</div>
+                  <div class="stat-label" style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <span>${s.label}</span>
+                    <button class="field-star-btn" data-star-key="ability_scores.${s.key}" data-star-label="${s.label}" title="${isStarred ? 'Remove from overview' : 'Add to overview'}" style="background:none;border:none;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;color:${isStarred ? 'var(--warn)' : 'var(--muted)'};">${isStarred ? '★' : '☆'}</button>
+                  </div>
                   <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
                   <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
                 </div>
@@ -46,10 +50,14 @@
             ${stats.slice(3).map(s => {
               const score = toInt(as[s.key], 10);
               const positive = score >= 10;
+              const isStarred = starredFields.some(f => f.key === `ability_scores.${s.key}`);
               return `
                 <div class="stat-block">
                   <div class="stat-abbr">${s.abbr}</div>
-                  <div class="stat-label">${s.label}</div>
+                  <div class="stat-label" style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                    <span>${s.label}</span>
+                    <button class="field-star-btn" data-star-key="ability_scores.${s.key}" data-star-label="${s.label}" title="${isStarred ? 'Remove from overview' : 'Add to overview'}" style="background:none;border:none;cursor:pointer;font-size:13px;line-height:1;padding:0 2px;color:${isStarred ? 'var(--warn)' : 'var(--muted)'};">${isStarred ? '★' : '☆'}</button>
+                  </div>
                   <div class="stat-mod" data-stat-mod="${s.key}" style="color:${positive ? 'var(--good)' : 'var(--bad)'}">${modStr(score)}</div>
                   <input type="number" class="stat-input" data-stat="${s.key}" value="${score}" min="1" max="30" />
                 </div>

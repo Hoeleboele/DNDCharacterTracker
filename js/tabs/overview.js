@@ -59,6 +59,34 @@
     const used = clamp(toInt(ss.used,0), 0, toInt(ss.max,0));
     return `${Math.max(0, toInt(ss.max,0)-used)} / ${toInt(ss.max,0)}`;
   }
+  if (String(dotted).startsWith('_skill_')) {
+    const skillKey = String(dotted).replace('_skill_', '');
+    const sk = (typeof SKILLS !== 'undefined') && SKILLS.find(s => s.key === skillKey);
+    if (!sk) return '—';
+    const as2 = obj.ability_scores || {};
+    const prof = toInt((obj.combat || {}).proficiency_bonus, 2);
+    const abilMod = Math.floor((toInt(as2[sk.stat], 10) - 10) / 2);
+    const isPro = Array.isArray(obj.skill_proficiencies) && obj.skill_proficiencies.includes(skillKey);
+    const total = abilMod + (isPro ? prof : 0);
+    return (total >= 0 ? '+' : '') + total;
+  }
+  if (String(dotted).startsWith('_save_')) {
+    const abilKey = String(dotted).replace('_save_', '');
+    const as2 = obj.ability_scores || {};
+    const prof = toInt((obj.combat || {}).proficiency_bonus, 2);
+    const abilMod = Math.floor((toInt(as2[abilKey], 10) - 10) / 2);
+    const isPro = Array.isArray(obj.saving_throw_proficiencies) && obj.saving_throw_proficiencies.includes(abilKey);
+    const total = abilMod + (isPro ? prof : 0);
+    return (total >= 0 ? '+' : '') + total;
+  }
+  if (String(dotted).startsWith('ability_scores.')) {
+    const abilKey = String(dotted).replace('ability_scores.', '');
+    const as2 = obj.ability_scores || {};
+    const score = toInt(as2[abilKey], 10);
+    const mod = Math.floor((score - 10) / 2);
+    const modStr = (mod >= 0 ? '+' : '') + mod;
+    return `${modStr} - (${score})`;
+  }
   return String(dotted).split('.').reduce((cur, p) => (cur != null ? cur[p] : undefined), obj);
 }
 
@@ -67,7 +95,7 @@ function tabForKey(key){
   if (key.startsWith('inventory.')) return 'inventory';
   if (key === '_currency') return 'inventory';
   if (key === '_proficiencies' || key === '_languages') return 'class_race';
-  if (key.startsWith('ability_scores.') || key.startsWith('skill_')) return 'stats';
+  if (key.startsWith('ability_scores.') || key.startsWith('skill_') || key.startsWith('_skill_') || key.startsWith('_save_')) return 'stats';
   if (key === 'attacks' || key === 'actions' || key === 'combat_spells') return 'combat';
   if (key.startsWith('resources.') || key.startsWith('features.')) return 'features';
   if (key === '_spell_dc' || key === '_spell_atk') return 'spells';

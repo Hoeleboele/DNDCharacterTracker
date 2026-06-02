@@ -681,11 +681,12 @@ function renderHostFullView() {
 
   // Render bottom tab bar inside host view (reuse renderTabBar helper)
   try {
-    // Ensure host tab container exists
+    // Ensure host tab container exists and is properly positioned
     let hostTabs = document.getElementById('hostTabsCard');
     if (!hostTabs) {
       hostTabs = document.createElement('div');
       hostTabs.id = 'hostTabsCard';
+      hostTabs.style.cssText = 'position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:1px solid var(--line); z-index:20;';
       document.getElementById('hostView').appendChild(hostTabs);
     }
     renderTabBar('hostTabsCard', tabs, mpDetailTab, (id) => { mpDetailTab = id; renderHostFullView(); });

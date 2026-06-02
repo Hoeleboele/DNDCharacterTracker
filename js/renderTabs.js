@@ -55,10 +55,10 @@ function showTabTip(title, body, tabId) {
   setTimeout(dismiss, 10000);
 }
 
-function renderTabNotch(label, aRgb) {
+function renderTabNotch(label, aRgb, containerId = 'tabsCard', noTransition = false) {
   const old = document.getElementById('tabTitleNotch');
   if (old) old.remove();
-  const tabsCard = document.getElementById('tabsCard');
+  const tabsCard = document.getElementById(containerId);
   if (!tabsCard) return;
   const h = tabsCard.offsetHeight;
   const notch = document.createElement('div');
@@ -75,7 +75,7 @@ function renderTabNotch(label, aRgb) {
     font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
     color:rgba(${aRgb},1);
     pointer-events:none;
-    transition:bottom .22s cubic-bezier(.4,0,.2,1);
+    ${noTransition ? '' : 'transition:bottom .22s cubic-bezier(.4,0,.2,1);'}
   `;
   document.body.appendChild(notch);
 }
@@ -160,7 +160,7 @@ function renderTabs(){
     </div>
   `;
   $('#tabsCard').style.background = `rgba(${aRgbM},0.06)`;
-  renderTabNotch(activeLabel, aRgbM);
+  renderTabNotch(activeLabel, aRgbM, 'tabsCard', tabDrawerOpen);
 
   // Tab drawer overlay
   let existing = document.getElementById('tabDrawerOverlay');
@@ -251,7 +251,11 @@ function renderTabs(){
     requestAnimationFrame(() => {
       drawer.style.transform = 'translateY(0)';
       const notch = document.getElementById('tabTitleNotch');
-      if (notch) notch.style.bottom = (tabBarH + drawer.offsetHeight) + 'px';
+      if (notch) {
+        notch.style.transition = 'none';
+        notch.style.bottom = (tabBarH + drawer.offsetHeight) + 'px';
+        requestAnimationFrame(() => { notch.style.transition = ''; });
+      }
     });
   }
   function closeDrawer() {
@@ -260,7 +264,11 @@ function renderTabs(){
     overlay.style.pointerEvents = 'none';
     drawer.style.transform = 'translateY(100%)';
     const notch = document.getElementById('tabTitleNotch');
-    if (notch) notch.style.bottom = tabBarH + 'px';
+    if (notch) {
+      notch.style.transition = 'none';
+      notch.style.bottom = tabBarH + 'px';
+      requestAnimationFrame(() => { notch.style.transition = ''; });
+    }
   }
 
   document.getElementById('btnTabDrawer').onclick = (e) => {
@@ -286,8 +294,9 @@ function renderTabs(){
         favTabs = [...favTabs.slice(0, 3), id];
       }
       saveFavTabs();
+      star.blur();
       renderTabs();
-      // Re-open drawer after re-render
+      // Re-open drawer after re-render, notch already at correct position (no transition)
       requestAnimationFrame(() => {
         const newOverlay = document.getElementById('tabDrawerOverlay');
         const newDrawer  = document.getElementById('tabDrawer');
@@ -296,6 +305,8 @@ function renderTabs(){
           newOverlay.style.pointerEvents = 'auto';
           newDrawer.style.transition = 'none';
           newDrawer.style.transform = 'translateY(0)';
+          const notch = document.getElementById('tabTitleNotch');
+          if (notch) notch.style.bottom = (tabBarH + newDrawer.offsetHeight) + 'px';
           requestAnimationFrame(() => { newDrawer.style.transition = ''; });
         }
         tabDrawerOpen = true;
@@ -325,31 +336,246 @@ function renderTabs(){
 }
 
 // Reusable tab bar renderer for embedding tab UI elsewhere (e.g. host view)
+// Responsive: matches player tab bar styling in both mobile and desktop modes
 function renderTabBar(containerId, allTabs, activeId, onSwitch) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  // Mobile-style compact bar (matches renderTabs mobile layout)
-  const favSet = new Set(favTabs || []);
   const visibleTabs = allTabs.filter(t => !t.hide);
-
   const activeLabel = (visibleTabs.find(t => t.id === activeId) || {}).label || '';
-  const aRgbM = tabRgb(activeId);
-  container.innerHTML = `
-    <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center; padding:6px 10px;">
-      ${visibleTabs.map(t => {
-        const rgb = tabRgb(t.id);
-        const isActive = t.id === activeId;
-        return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
-          style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;
-            color:rgba(${rgb},1);
-            ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
-        >${t.label}</button>`;
-      }).join('')}
-    </div>
-  `;
-  container.style.background = `rgba(${aRgbM},0.06)`;
+  const aRgb = tabRgb(activeId);
 
+  // Desktop mode (640px+)
+  if (window.innerWidth >= 640) {
+    container.innerHTML = `
+      <div style="display:flex; justify-content:center; padding:6px 10px; overflow-x:auto; scrollbar-width:none;">
+        <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center;">
+          ${visibleTabs.map(t => {
+            const rgb = tabRgb(t.id);
+            const isActive = t.id === activeId;
+            return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
+              style="white-space:nowrap; padding:10px 14px; font-size:14px;
+                color:rgba(${rgb},1);
+                ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
+            >${t.label}</button>`;
+          }).join('')}
+          <button id="btnHostMenuToggle" class="tab" style="white-space:nowrap; padding:10px 14px; font-size:14px;">Back to Overview</button>
+        </div>
+      </div>
+    `;
+    container.style.background = `rgba(${aRgb},0.06)`;
+    renderTabNotch(activeLabel, aRgb, containerId);
+    // Remove any leftover mobile overlay
+    const ov = document.getElementById('hostTabDrawerOverlay');
+    if (ov) ov.remove();
+  } else {
+    // Mobile mode (<640px)
+    const favSet = new Set(favTabs || []);
+    const visibleFavTabs = visibleTabs.filter(t => favSet.has(t.id))
+      .sort((a, b) => favTabs.indexOf(a.id) - favTabs.indexOf(b.id));
+
+    container.innerHTML = `
+      <div class="row" style="gap:6px; flex-wrap:nowrap; align-items:center; padding:6px 10px; width:100%;">
+        ${visibleFavTabs.map(t => {
+          const rgb = tabRgb(t.id);
+          const isActive = t.id === activeId;
+          return `<button class="tab ${isActive?'active':''}" data-tab="${t.id}"
+            style="flex:1; white-space:nowrap; padding:10px 8px; font-size:13px;
+              color:rgba(${rgb},1);
+              ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
+          >${t.label}</button>`;
+        }).join('')}
+        <button id="btnHostTabDrawer" class="tab" style="flex-shrink:0; padding:10px 12px; font-size:18px; line-height:1;">&#9776;</button>
+      </div>
+    `;
+    container.style.background = `rgba(${aRgb},0.06)`;
+    const _hostDrawerWasOpen = !!document.getElementById('hostTabDrawerOverlay');
+    renderTabNotch(activeLabel, aRgb, containerId, _hostDrawerWasOpen);
+
+    // Tab drawer overlay (mobile menu)
+    let existing = document.getElementById('hostTabDrawerOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'hostTabDrawerOverlay';
+    overlay.style.cssText = `
+      position:fixed; inset:0; z-index:19; background:rgba(0,0,0,0);
+      pointer-events:none; transition:background .2s;
+    `;
+    const drawer = document.createElement('div');
+    drawer.id = 'hostTabDrawer';
+    const tabBarH = container.offsetHeight || 64;
+    drawer.style.cssText = `
+      position:absolute; bottom:${tabBarH}px; left:0; right:0;
+      background:var(--panel); border-top:1px solid var(--line);
+      border-radius:18px 18px 0 0; padding:14px 10px 10px;
+      transform:translateY(100%); transition:transform .22s cubic-bezier(.4,0,.2,1);
+      display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+    `;
+
+    // Back button (top row)
+    const topRow = document.createElement('div');
+    topRow.style.cssText = 'grid-column:1/-1; display:flex; gap:8px; margin-bottom:8px;';
+
+    const backBtn = document.createElement('button');
+    backBtn.className = 'tab';
+    backBtn.textContent = 'Back to Overview';
+    backBtn.id = 'btnHostMenuToggleMobile';
+    backBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
+
+    topRow.appendChild(backBtn);
+    drawer.appendChild(topRow);
+
+    // Hint label
+    const hint = document.createElement('div');
+    hint.style.cssText = 'grid-column:1/-1; font-size:11px; color:var(--muted); text-align:center; margin-bottom:2px;';
+    hint.textContent = '★ pin up to 4 tabs to the bar';
+    drawer.appendChild(hint);
+
+    // All tabs with star buttons
+    visibleTabs.forEach(t => {
+      const isFav = favSet.has(t.id);
+      const rgb = tabRgb(t.id);
+      const isActive = t.id === activeId;
+
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative; display:flex;';
+
+      const btn = document.createElement('button');
+      btn.className = `tab ${isActive ? 'active' : ''}`;
+      btn.dataset.tab = t.id;
+      btn.style.cssText = `
+        flex:1; padding:12px 6px 12px 6px; font-size:12px; text-align:center; padding-right:28px;
+        color:rgba(${rgb},1);
+        ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}
+      `;
+      btn.textContent = t.label;
+
+      const star = document.createElement('button');
+      star.dataset.hostFavBtn = t.id;
+      star.style.cssText = `
+        position:absolute; right:4px; top:50%; transform:translateY(-50%);
+        background:none; border:none; cursor:pointer; font-size:15px; line-height:1;
+        color:${isFav ? 'var(--warn)' : 'var(--muted)'}; padding:4px;
+      `;
+      star.textContent = isFav ? '★' : '☆';
+      star.title = isFav ? 'Unpin from bar' : (favTabs.length >= 4 ? 'Unpin another tab first' : 'Pin to bar');
+
+      wrap.appendChild(btn);
+      wrap.appendChild(star);
+      drawer.appendChild(wrap);
+    });
+
+    overlay.appendChild(drawer);
+    document.body.appendChild(overlay);
+
+    let isOpen = false;
+
+    function openHostDrawer() {
+      isOpen = true;
+      overlay.style.background = 'rgba(0,0,0,0.4)';
+      overlay.style.pointerEvents = 'auto';
+      requestAnimationFrame(() => {
+        drawer.style.transform = 'translateY(0)';
+        const notch = document.getElementById('tabTitleNotch');
+        if (notch) {
+          notch.style.transition = 'none';
+          notch.style.bottom = (tabBarH + drawer.offsetHeight) + 'px';
+          requestAnimationFrame(() => { notch.style.transition = ''; });
+        }
+      });
+    }
+
+    function closeHostDrawer() {
+      isOpen = false;
+      overlay.style.background = 'rgba(0,0,0,0)';
+      overlay.style.pointerEvents = 'none';
+      drawer.style.transform = 'translateY(100%)';
+      const notch = document.getElementById('tabTitleNotch');
+      if (notch) {
+        notch.style.transition = 'none';
+        notch.style.bottom = tabBarH + 'px';
+        requestAnimationFrame(() => { notch.style.transition = ''; });
+      }
+    }
+
+    // Star toggle handlers
+    drawer.querySelectorAll('[data-host-fav-btn]').forEach(star => {
+      star.onclick = (e) => {
+        e.stopPropagation();
+        const id = star.dataset.hostFavBtn;
+        if (favTabs.includes(id)) {
+          favTabs = favTabs.filter(x => x !== id);
+        } else if (favTabs.length < 4) {
+          favTabs = [...favTabs, id];
+        } else {
+          // Replace the last favorited tab with the new one
+          favTabs = [...favTabs.slice(0, 3), id];
+        }
+        saveFavTabs();
+        star.blur();
+        renderTabBar(containerId, allTabs, activeId, onSwitch);
+        // Re-open drawer after re-render, reposition notch without transition
+        requestAnimationFrame(() => {
+          const newOverlay = document.getElementById('hostTabDrawerOverlay');
+          const newDrawer = document.getElementById('hostTabDrawer');
+          if (newOverlay && newDrawer) {
+            newOverlay.style.background = 'rgba(0,0,0,0.4)';
+            newOverlay.style.pointerEvents = 'auto';
+            newDrawer.style.transition = 'none';
+            newDrawer.style.transform = 'translateY(0)';
+            const notch = document.getElementById('tabTitleNotch');
+            if (notch) notch.style.bottom = (tabBarH + newDrawer.offsetHeight) + 'px';
+            requestAnimationFrame(() => { newDrawer.style.transition = ''; });
+          }
+          isOpen = true;
+        });
+      };
+    });
+
+    const drawerBtn = document.getElementById('btnHostTabDrawer');
+    if (drawerBtn) {
+      drawerBtn.onclick = (e) => {
+        e.stopPropagation();
+        isOpen ? closeHostDrawer() : openHostDrawer();
+      };
+    }
+
+    overlay.addEventListener('click', (e) => {
+      if (!drawer.contains(e.target)) closeHostDrawer();
+    });
+
+    drawer.querySelectorAll('[data-tab]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        closeHostDrawer();
+        const id = btn.dataset.tab;
+        if (typeof onSwitch === 'function') onSwitch(id);
+      };
+    });
+
+    backBtn.onclick = (e) => {
+      e.stopPropagation();
+      closeHostDrawer();
+      if (typeof window.mpViewingPlayer !== 'undefined') {
+        mpViewingPlayer = null;
+        renderHostView();
+      }
+    };
+  }
+
+  // Desktop "Back to Host" button handler
+  const backBtnDesktop = document.getElementById('btnHostMenuToggle');
+  if (backBtnDesktop) {
+    backBtnDesktop.onclick = () => {
+      if (typeof window.mpViewingPlayer !== 'undefined') {
+        mpViewingPlayer = null;
+        renderHostView();
+      }
+    };
+  }
+
+  // Wire main tab buttons in bar
   container.querySelectorAll('[data-tab]').forEach(btn => {
     btn.onclick = () => {
       const id = btn.dataset.tab;

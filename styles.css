@@ -384,5 +384,36 @@
 
     @media (max-width: 720px){
       .grid2, .grid3, .split{ grid-template-columns: 1fr !important; }
+      .host-header{
+        flex-direction:column;
+        align-items:flex-start;
+        gap:16px;
+      }
+      .host-header > div:last-child{
+        width:100%;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+      }
+      .host-grid{
+        grid-template-columns: 1fr;
+      }
+      .tabs{ padding:6px 10px !important; }
+      .tab{ padding:9px 10px !important; font-size:12px !important; }
     }
+
+    @media (max-width: 480px){
+      .player-card-footer{
+        flex-direction:column;
+        gap:8px;
+      }
+      .player-card-footer .btn{
+        width:100%;
+      }
+      .tab{ padding:8px 8px !important; font-size:11px !important; }
+      #hostTabsCard{
+        padding:6px 0;
+      }
+    }
+  
   

@@ -65,7 +65,9 @@ document.addEventListener('click', e => {
   btn.textContent = isNowStarred ? '★' : '☆';
   btn.style.color = isNowStarred ? 'var(--warn)' : 'var(--muted)';
   btn.title = isNowStarred ? 'Remove from overview' : 'Add to overview';
-});
+  // Prevent focus-related scroll behavior
+  btn.blur();
+}, true);
 
 // Run migration (legacy v1 → multi-char) immediately on load
 loadAllChars();
