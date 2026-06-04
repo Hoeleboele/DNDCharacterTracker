@@ -12,6 +12,145 @@ const MP_PLAYER_NOTES_KEY = 'mp_player_notes_v1';
 let mpPlayerNotes = {};
 let mpDisconnectTimers = {};  // peerId → timeoutId
 
+// ── Initiative tracker ──────────────────────────────────────────────────────
+const MP_INITIATIVE_KEY = 'mp_initiative_v1';
+let mpView = 'players';   // 'players' | 'initiative'
+let mpInitShowAddForm = false;
+let mpInitAddFormType = 'enemy';  // 'enemy' | 'friendly'
+let mpInitCondPickerId = null; // id of entry whose inline condition picker is open
+/**
+ * mpInitiative shape:
+ *   { entries: [{ id, name, kind, playerPid?, initiative, status,
+ *                 ac?, conditions?: string[]   // enemy-only fields }],
+ *     round: number (0 = not started),
+ *     activeId: string|null }
+ * Player conditions are read live from mpPlayerConns[pid].state.character.conditions;
+ * enemy conditions live on the entry itself.
+ */
+let mpInitiative = { entries: [], round: 0, activeId: null };
+
+function mpInitLoad() {
+  try {
+    const raw = localStorage.getItem(MP_INITIATIVE_KEY);
+    if (raw) mpInitiative = JSON.parse(raw) || mpInitiative;
+  } catch (_) {}
+}
+
+function mpInitSave() {
+  try { localStorage.setItem(MP_INITIATIVE_KEY, JSON.stringify(mpInitiative)); } catch (_) {}
+}
+
+/** Keep player entries in sync with mpPlayerConns (live players only). */
+function mpInitSyncPlayers() {
+  const existing = mpInitiative.entries;
+
+  // Build a set of pids for connected (not permanently gone) players
+  const livePids = new Set(
+    Object.entries(mpPlayerConns)
+      .filter(([, pd]) => !pd.disconnected || (pd.disconnectedAt && (Date.now() - pd.disconnectedAt) < 600000))
+      .map(([pid]) => pid)
+  );
+
+  // Add entries for players not yet tracked
+  for (const pid of livePids) {
+    if (!existing.find(e => e.playerPid === pid)) {
+      const ch = mpPlayerConns[pid]?.state?.character;
+      existing.push({
+        id: 'p_' + pid,
+        name: ch?.name || 'Player',
+        kind: 'player',
+        playerPid: pid,
+        initiative: null,
+        status: 'active',
+      });
+    } else {
+      // Update name if character state changed
+      const entry = existing.find(e => e.playerPid === pid);
+      const ch = mpPlayerConns[pid]?.state?.character;
+      if (ch?.name) entry.name = ch.name;
+    }
+  }
+
+  // Remove player entries whose pid is completely gone (cleaned up from mpPlayerConns)
+  const allPids = new Set(Object.keys(mpPlayerConns));
+  mpInitiative.entries = existing.filter(e => e.kind !== 'player' || allPids.has(e.playerPid));
+}
+
+/**
+ * Returns entries sorted desc by initiative (nulls last),
+ * grouped into arrays of equal initiative: [[e,e], [e], [e,e], ...]
+ */
+function mpInitSortedGroups() {
+  const withVal = mpInitiative.entries.filter(e => e.initiative !== null);
+  const noVal   = mpInitiative.entries.filter(e => e.initiative === null);
+
+  // stable sort desc
+  const sorted = withVal.slice().sort((a, b) => b.initiative - a.initiative);
+
+  const groups = [];
+  for (const e of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last[0].initiative === e.initiative) last.push(e);
+    else groups.push([e]);
+  }
+  if (noVal.length) groups.push(noVal);
+  return groups;
+}
+
+/** Flat array of entries in turn order (high→low, nulls last, insertion order for ties). */
+function mpInitFlatOrder() {
+  return mpInitSortedGroups().flat();
+}
+
+/** Next GROUP's first entry id (groups with same initiative are treated as one turn). */
+function mpInitNextGroupId(currentId) {
+  const groups = mpInitSortedGroups();
+  if (!groups.length) return null;
+  
+  // Find which group the current id is in
+  let currentGroupIdx = -1;
+  for (let i = 0; i < groups.length; i++) {
+    if (groups[i].some(e => e.id === currentId)) {
+      currentGroupIdx = i;
+      break;
+    }
+  }
+  
+  if (currentGroupIdx === -1) return groups[0]?.[0]?.id || null;
+  
+  // Get the next group (wrap around)
+  const nextGroupIdx = (currentGroupIdx + 1) % groups.length;
+  return groups[nextGroupIdx]?.[0]?.id || null;
+}
+
+/** Next entry id after currentId in flat order, wrapping to start. */
+function mpInitNextId(currentId) {
+  const order = mpInitFlatOrder();
+  if (!order.length) return null;
+  const idx = order.findIndex(e => e.id === currentId);
+  if (idx === -1) return order[0].id;
+  return order[(idx + 1) % order.length].id;
+}
+
+/** On-deck (next) entry id. */
+function mpInitOnDeckId(currentId) {
+  return mpInitNextGroupId(currentId);
+}
+
+/** Host helper: push a new conditions array to a connected player and mirror locally. */
+function mpSendConditionsToPlayer(pid, conditionsArr) {
+  const pd = mpPlayerConns[pid];
+  if (!pd) return;
+  const arr = Array.isArray(conditionsArr) ? conditionsArr.slice() : [];
+  // Mirror immediately so host UI reflects the change before the player echoes back.
+  if (pd.state && pd.state.character) {
+    pd.state.character.conditions = arr;
+  }
+  try {
+    if (pd.conn && pd.conn.open) pd.conn.send({ type: 'set_conditions', conditions: arr });
+  } catch (_) {}
+}
+
 function startHost() {
   setLandingStatus('Starting…');
   gameMode = 'host';
@@ -21,6 +160,10 @@ function startHost() {
   // Load any host-side fallback notes saved for players so undelivered notes
   // can be applied when a player next connects.
   try { mpPlayerNotes = JSON.parse(localStorage.getItem(MP_PLAYER_NOTES_KEY) || '{}') || {}; } catch (_) { mpPlayerNotes = {}; }
+
+  mpView = 'players';
+  mpInitShowAddForm = false;
+  mpInitLoad();
 
   mpTryHost(genCode());
 }
@@ -134,6 +277,16 @@ function joinGame(code) {
     });
     mpHostConn.on('data', (data) => {
       if (data.type === 'request-sync') syncToHost();
+      else if (data.type === 'set_conditions') {
+        try {
+          if (state && state.character) {
+            state.character.conditions = Array.isArray(data.conditions) ? data.conditions.slice() : [];
+            saveToLocalStorage();
+            syncToHost();
+            render();
+          }
+        } catch (_) {}
+      }
       else if (data.type === 'host_notes') {
         // Host is sending a note for this player — persist it locally under the host room code.
         try {
@@ -177,7 +330,41 @@ function genCode() {
   return Math.random().toString(36).substr(2, 6).toUpperCase();
 }
 
+/** Remove a player from the game (disconnect them). */
+function mpRemovePlayer(pid) {
+  const pd = mpPlayerConns[pid];
+  if (!pd) return;
+  
+  // Close the connection if it's open
+  if (pd.conn && pd.conn.open) {
+    try { pd.conn.close(); } catch (_) {}
+  }
+  
+  // Clear any pending disconnect timer
+  if (mpDisconnectTimers[pid]) {
+    clearTimeout(mpDisconnectTimers[pid]);
+    delete mpDisconnectTimers[pid];
+  }
+  
+  // Remove from player connections map
+  delete mpPlayerConns[pid];
+  delete mpPlayerNotes[pid];
+  
+  // Remove from expanded/notes display sets
+  mpExpandedPlayers.delete(pid);
+  mpNotesExpanded.delete(pid);
+  
+  // If viewing this player in full view, go back to player list
+  if (mpViewingPlayer === pid) {
+    mpViewingPlayer = null;
+    renderHostView();
+  } else {
+    renderHostView();
+  }
+}
+
 function renderHostView() {
+  mpInitSyncPlayers();
   const players = Object.entries(mpPlayerConns);
   const inner = document.getElementById('hostViewInner');
   if (!inner) return;
@@ -188,6 +375,272 @@ function renderHostView() {
     if (hostTabsCard && hostTabsCard.parentNode) hostTabsCard.parentNode.removeChild(hostTabsCard);
   } catch (e) {}
 
+  // ── Shared header ────────────────────────────────────────────────────────
+  const headerHtml = `
+    <div class="host-header" style="max-width:1400px; margin:0 auto;">
+      <div>
+        <div style="font-size:13px; color:var(--muted); letter-spacing:.5px; margin-bottom:2px;">ROOM CODE</div>
+        <div class="room-code">${escapeHtml(mpRoomCode)}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <span class="pill">${players.length} player${players.length !== 1 ? 's' : ''} connected</span>
+        <button class="btn${mpView === 'initiative' ? ' btn-accent' : ''}" id="btnToggleView">
+          ${mpView === 'players' ? '⚔ Initiative' : '👥 Players'}
+        </button>
+        ${mpView === 'players'
+          ? (mpRefreshing
+              ? `<span class="mini" style="color:var(--warn);">⏳ Retrieving data…</span>`
+              : `<button class="btn" id="btnHostRefresh">↺ Refresh</button>`)
+          : ''}
+        <button class="btn" id="btnHostReconnect">↻ Reconnect</button>
+        <button class="btn" id="btnHostMenu">Main Menu</button>
+      </div>
+    </div>`;
+
+  if (mpView === 'initiative') {
+    inner.innerHTML = headerHtml + renderInitiativeView();
+    // ── Initiative view handlers ─────────────────────────────────────────
+    inner.querySelector('#btnToggleView').onclick = () => { mpView = 'players'; renderHostView(); };
+    inner.querySelector('#btnHostMenu').onclick = () => returnToMenu();
+    inner.querySelector('#btnHostReconnect').onclick = () => {
+      const code = mpRoomCode || genCode();
+      Object.values(mpDisconnectTimers).forEach(tid => clearTimeout(tid));
+      mpDisconnectTimers = {};
+      mpPlayerConns = {};
+      mpExpandedPlayers = new Set();
+      mpViewingPlayer = null;
+      mpRefreshing = false;
+      if (typeof mpTryHost === 'function') mpTryHost(code, false);
+    };
+
+    // Start Round
+    const btnStart = inner.querySelector('#btnInitStartRound');
+    if (btnStart) btnStart.onclick = () => {
+      const order = mpInitFlatOrder();
+      if (!order.length) return;
+      mpInitiative.round = 1;
+      mpInitiative.activeId = order[0].id;
+      mpInitCondPickerId = null;
+      mpInitSave(); renderHostView();
+    };
+
+    // End Turn
+    const btnEnd = inner.querySelector('#btnInitEndTurn');
+    if (btnEnd) btnEnd.onclick = () => {
+      const groups = mpInitSortedGroups();
+      if (!groups.length) return;
+      
+      // Find which group the current id is in
+      let currentGroupIdx = -1;
+      for (let i = 0; i < groups.length; i++) {
+        if (groups[i].some(e => e.id === mpInitiative.activeId)) {
+          currentGroupIdx = i;
+          break;
+        }
+      }
+      
+      if (currentGroupIdx === -1) return;
+      
+      // Move to next group
+      const nextGroupIdx = (currentGroupIdx + 1) % groups.length;
+      if (nextGroupIdx === 0) mpInitiative.round++;
+      mpInitiative.activeId = groups[nextGroupIdx][0].id;
+      mpInitCondPickerId = null;
+      mpInitSave(); renderHostView();
+    };
+
+    // End Round (keeps entries + values, just stops the round)
+    const btnEndRound = inner.querySelector('#btnInitEndRound');
+    if (btnEndRound) btnEndRound.onclick = () => {
+      mpInitiative.round = 0;
+      mpInitiative.activeId = null;
+      mpInitCondPickerId = null;
+      mpInitSave(); renderHostView();
+    };
+
+    // Reset to Players
+    const btnReset = inner.querySelector('#btnInitReset');
+    if (btnReset) btnReset.onclick = () => {
+      mpInitiative.entries = mpInitiative.entries.filter(e => e.kind === 'player');
+      mpInitiative.entries.forEach(e => { e.initiative = null; e.status = 'active'; });
+      mpInitiative.round = 0;
+      mpInitiative.activeId = null;
+      mpInitShowAddForm = false;
+      mpInitCondPickerId = null;
+      mpInitSave(); renderHostView();
+    };
+
+    // Toggle add form and set type to enemy
+    const btnAddEnemy = inner.querySelector('#btnInitAddEnemy');
+    if (btnAddEnemy) btnAddEnemy.onclick = () => { mpInitAddFormType = 'enemy'; mpInitShowAddForm = !mpInitShowAddForm; renderHostView(); };
+
+    // Toggle add form and set type to friendly
+    const btnAddFriendly = inner.querySelector('#btnInitAddFriendly');
+    if (btnAddFriendly) btnAddFriendly.onclick = () => { mpInitAddFormType = 'friendly'; mpInitShowAddForm = !mpInitShowAddForm; renderHostView(); };
+
+    // Cancel add form
+    const btnAddCancel = inner.querySelector('#btnInitAddCancel');
+    if (btnAddCancel) btnAddCancel.onclick = () => { mpInitShowAddForm = false; renderHostView(); };
+
+    // Submit add form (handles both enemy and friendly)
+    const formAdd = inner.querySelector('#initAddForm');
+    if (formAdd) formAdd.onsubmit = (ev) => {
+      ev.preventDefault();
+      const nameEl = inner.querySelector('#initAddName');
+      const initEl = inner.querySelector('#initAddInit');
+      const acEl   = inner.querySelector('#initAddAc');
+      const name = nameEl ? nameEl.value.trim() : '';
+      if (!name) return;
+      const initVal = initEl && initEl.value.trim() !== '' ? parseInt(initEl.value, 10) : null;
+      const acVal   = acEl  && acEl.value.trim()  !== '' ? parseInt(acEl.value,  10) : null;
+      const newEntry = {
+        id: (mpInitAddFormType === 'friendly' ? 'f_' : 'e_') + Date.now() + '_' + Math.floor(Math.random() * 10000),
+        name,
+        kind: mpInitAddFormType,
+        initiative: isNaN(initVal) ? null : initVal,
+        ac: isNaN(acVal) ? null : acVal,
+        status: 'active',
+        conditions: [],
+      };
+      mpInitiative.entries.push(newEntry);
+      mpInitShowAddForm = false;
+      mpInitSave(); renderHostView();
+    };
+
+    // Initiative inputs (setup view)
+    inner.querySelectorAll('[data-init-set]').forEach(inp => {
+      inp.onchange = () => {
+        const id = inp.dataset.initSet;
+        const entry = mpInitiative.entries.find(e => e.id === id);
+        if (!entry) return;
+        const v = inp.value.trim();
+        entry.initiative = v === '' ? null : parseInt(v, 10);
+        if (isNaN(entry.initiative)) entry.initiative = null;
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    // AC inputs (setup view, enemies only)
+    inner.querySelectorAll('[data-init-ac]').forEach(inp => {
+      inp.onchange = () => {
+        const id = inp.dataset.initAc;
+        const entry = mpInitiative.entries.find(e => e.id === id);
+        if (!entry) return;
+        const v = inp.value.trim();
+        entry.ac = v === '' ? null : parseInt(v, 10);
+        if (isNaN(entry.ac)) entry.ac = null;
+        mpInitSave();
+      };
+    });
+
+    // Remove enemy button (setup view)
+    inner.querySelectorAll('[data-init-remove]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initRemove;
+        mpInitiative.entries = mpInitiative.entries.filter(e => e.id !== id);
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    // Down / Revive toggle
+    inner.querySelectorAll('[data-init-down]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initDown;
+        const entry = mpInitiative.entries.find(e => e.id === id);
+        if (!entry) return;
+        entry.status = entry.status === 'down' ? 'active' : 'down';
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    // Kill button
+    inner.querySelectorAll('[data-init-kill]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initKill;
+        const wasActive = mpInitiative.activeId === id;
+        const order = mpInitFlatOrder();
+        const idx = order.findIndex(e => e.id === id);
+        mpInitiative.entries = mpInitiative.entries.filter(e => e.id !== id);
+        if (wasActive) {
+          const newOrder = mpInitFlatOrder();
+          if (!newOrder.length) {
+            mpInitiative.activeId = null;
+          } else {
+            const nextIdx = idx >= newOrder.length ? 0 : idx;
+            mpInitiative.activeId = newOrder[nextIdx].id;
+          }
+        }
+        if (mpInitCondPickerId === id) mpInitCondPickerId = null;
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    // Toggle inline condition picker
+    inner.querySelectorAll('[data-init-condadd]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initCondadd;
+        mpInitCondPickerId = (mpInitCondPickerId === id) ? null : id;
+        renderHostView();
+      };
+    });
+
+    // Cancel condition picker
+    inner.querySelectorAll('[data-init-cond-cancel]').forEach(btn => {
+      btn.onclick = () => { mpInitCondPickerId = null; renderHostView(); };
+    });
+
+    // Confirm condition picker → add condition
+    inner.querySelectorAll('[data-init-cond-confirm]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initCondConfirm;
+        const sel = inner.querySelector(`[data-init-cond-select="${id}"]`);
+        if (!sel) return;
+        let v = (sel.value || '').trim();
+        if (!v) return;
+        if (v === '__custom__') {
+          const custom = prompt('Enter custom condition:');
+          if (!custom || !custom.trim()) return;
+          v = custom.trim();
+        }
+        const entry = mpInitiative.entries.find(e => e.id === id);
+        if (!entry) return;
+        if (entry.kind === 'player') {
+          const cur = mpPlayerConns[entry.playerPid]?.state?.character?.conditions || [];
+          if (!cur.includes(v)) {
+            const next = cur.concat([v]);
+            mpSendConditionsToPlayer(entry.playerPid, next);
+          }
+        } else {
+          entry.conditions = entry.conditions || [];
+          if (!entry.conditions.includes(v)) entry.conditions.push(v);
+        }
+        mpInitCondPickerId = null;
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    // Remove condition pill
+    inner.querySelectorAll('[data-init-condrm]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.initCondrm;
+        const name = btn.dataset.initCond;
+        const entry = mpInitiative.entries.find(e => e.id === id);
+        if (!entry) return;
+        if (entry.kind === 'player') {
+          const cur = mpPlayerConns[entry.playerPid]?.state?.character?.conditions || [];
+          const next = cur.filter(x => x !== name);
+          mpSendConditionsToPlayer(entry.playerPid, next);
+        } else {
+          entry.conditions = (entry.conditions || []).filter(x => x !== name);
+        }
+        mpInitSave(); renderHostView();
+      };
+    });
+
+    return; // skip player-view wiring below
+  }
+
+  // ── Players view ─────────────────────────────────────────────────────────
   const playersHtml = players.length === 0
     ? `<div class="card" style="text-align:center; padding:48px; max-width:500px; margin:0 auto;">
          <div style="font-size:48px; margin-bottom:16px;">⏳</div>
@@ -196,23 +649,9 @@ function renderHostView() {
        </div>`
     : `<div class="host-grid">${players.map(([pid, pd]) => renderPlayerCard(pid, pd)).join('')}</div>`;
 
-  inner.innerHTML = `
-    <div class="host-header" style="max-width:1400px; margin:0 auto;">
-      <div>
-        <div style="font-size:13px; color:var(--muted); letter-spacing:.5px; margin-bottom:2px;">ROOM CODE</div>
-        <div class="room-code">${escapeHtml(mpRoomCode)}</div>
-      </div>
-      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-        <span class="pill">${players.length} player${players.length !== 1 ? 's' : ''} connected</span>
-        ${mpRefreshing
-      ? `<span class="mini" style="color:var(--warn);">⏳ Retrieving data…</span>`
-      : `<button class="btn" id="btnHostRefresh">↺ Refresh</button>`}
-        <button class="btn" id="btnHostReconnect">↻ Reconnect</button>
-        <button class="btn" id="btnHostMenu">Main Menu</button>
-      </div>
-    </div>
-    ${playersHtml}
-  `;
+  inner.innerHTML = headerHtml + playersHtml;
+
+  inner.querySelector('#btnToggleView').onclick = () => { mpView = 'initiative'; renderHostView(); };
 
   inner.querySelectorAll('[data-expand]').forEach(btn => {
     btn.onclick = () => {
@@ -227,6 +666,17 @@ function renderHostView() {
       mpViewingPlayer = btn.dataset.fullview;
       mpDetailTab = 'overview';
       renderHostFullView();
+    };
+  });
+
+  inner.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.onclick = () => {
+      const pid = btn.dataset.remove;
+      const ch = mpPlayerConns[pid]?.state?.character;
+      const charName = ch?.name || 'this player';
+      if (confirm(`Remove ${escapeHtml(charName)} from the game?`)) {
+        mpRemovePlayer(pid);
+      }
     };
   });
 
@@ -295,7 +745,169 @@ function renderHostView() {
     if (typeof mpTryHost === 'function') mpTryHost(code, false);
   };
 
-  
+}
+
+function renderInitiativeView() {
+  const { entries, round, activeId } = mpInitiative;
+  const isActive = round > 0;
+  const onDeckId = isActive ? mpInitOnDeckId(activeId) : null;
+
+  // ── Action bar ────────────────────────────────────────────────────────────
+  const canStart = !isActive && entries.length > 0 && entries.every(e => e.initiative !== null);
+  const actionBar = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+      ${isActive
+        ? `<span class="pill" style="background:rgba(124,192,255,.15); color:var(--accent); font-size:13px;">Round ${round}</span>
+           <button class="btn" id="btnInitEndTurn">▶ End Turn</button>
+           <button class="btn" id="btnInitEndRound">⏹ End Round</button>`
+        : `<span class="pill" style="color:var(--muted); font-size:13px;">Not started</span>
+           <button class="btn${canStart ? '' : ''}" id="btnInitStartRound"${canStart ? '' : ' disabled style="opacity:.5;"'}>▶ Start Round</button>`}
+      <button class="btn" id="btnInitAddEnemy">+ Add Enemy</button>
+      <button class="btn" id="btnInitAddFriendly">+ Add Friendly</button>
+      <button class="btn" style="margin-left:auto;" id="btnInitReset">↺ Reset to Players</button>
+    </div>`;
+
+  // ── Add-enemy/friendly form ────────────────────────────────────────────────────────
+  const addForm = mpInitShowAddForm ? `
+    <div class="card" style="padding:14px 16px; margin-bottom:16px; max-width:500px;">
+      <div class="mini" style="margin-bottom:8px;">${mpInitAddFormType === 'friendly' ? '+ Add Friendly NPC' : '+ Add Enemy'}</div>
+      <form id="initAddForm" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:1; min-width:140px;">
+          <div class="mini" style="margin-bottom:4px;">Name</div>
+          <input id="initAddName" type="text" placeholder="Goblin…" autocomplete="off" required
+                 style="width:100%;">
+        </div>
+        <div style="width:68px;">
+          <div class="mini" style="margin-bottom:4px;">Initiative</div>
+          <input id="initAddInit" type="number" placeholder="—"
+                 style="width:100%;">
+        </div>
+        <div style="width:60px;">
+          <div class="mini" style="margin-bottom:4px;">AC</div>
+          <input id="initAddAc" type="number" placeholder="—" min="0"
+                 style="width:100%;">
+        </div>
+        <button class="btn" type="submit" style="align-self:flex-end;">Add</button>
+        <button class="btn" type="button" id="btnInitAddCancel" style="align-self:flex-end;">Cancel</button>
+      </form>
+    </div>` : '';
+
+  // ── Entries ────────────────────────────────────────────────────────────────
+  let entriesHtml = '';
+  if (!entries.length) {
+    entriesHtml = `<div class="card" style="padding:32px; text-align:center; color:var(--muted); max-width:700px; margin:0 auto;">
+      No entries yet. Add enemies or wait for players to connect.
+    </div>`;
+  } else if (!isActive) {
+    // Setup view: list with editable initiative inputs
+    entriesHtml = `<div style="max-width:700px; margin:0 auto; display:flex; flex-direction:column; gap:8px;">
+      ${entries.map(e => `
+        <div class="init-row" style="display:flex; align-items:center; gap:10px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px;">
+          <span class="pill" style="font-size:11px; min-width:56px; text-align:center;
+            ${e.kind === 'player' ? 'background:rgba(107,255,179,.12); color:var(--good);' : e.kind === 'friendly' ? 'background:rgba(255,209,102,.15); color:var(--warn);' : 'background:rgba(255,107,107,.10); color:var(--bad);'}">
+            ${e.kind === 'player' ? 'Player' : e.kind === 'friendly' ? 'Friendly' : 'Enemy'}
+          </span>
+          <span style="flex:1; font-weight:600;">${escapeHtml(e.name)}</span>
+          ${e.kind === 'player'
+            ? (() => { const playerAc = mpPlayerConns[e.playerPid]?.state?.character?.combat?.ac; return playerAc != null ? `<span class="pill" style="font-size:12px; min-width:50px; text-align:center; color:var(--muted);">AC ${playerAc}</span>` : ''; })()
+            : `<input type="number" data-init-ac="${escapeAttr(e.id)}"
+                 value="${e.ac !== null && e.ac !== undefined ? e.ac : ''}"
+                 placeholder="AC" style="width:58px; text-align:center;">`}
+          <input type="number" data-init-set="${escapeAttr(e.id)}"
+                 value="${e.initiative !== null ? e.initiative : ''}"
+                 placeholder="Init" style="width:68px; text-align:center;">
+          ${e.kind === 'enemy'
+            ? `<button class="btn" data-init-remove="${escapeAttr(e.id)}" style="color:var(--bad); min-width:30px; padding:4px 8px;" title="Remove">✕</button>`
+            : ''}
+        </div>`).join('')}
+    </div>`;
+  } else {
+    // Active round: grouped rows, current/on-deck highlighted
+    const groups = mpInitSortedGroups();
+    const groupRows = groups.map(group => {
+      const isCurrent  = group.some(e => e.id === activeId);
+      const isOnDeck   = !isCurrent && group.some(e => e.id === onDeckId);
+      const rowClass   = isCurrent ? 'init-row current' : isOnDeck ? 'init-row ondeck' : 'init-row';
+      const badge      = isCurrent
+        ? `<span class="pill" style="background:rgba(124,192,255,.25); color:var(--accent); font-size:11px; font-weight:700;">CURRENT TURN</span>`
+        : isOnDeck
+          ? `<span class="pill" style="background:rgba(255,209,102,.15); color:var(--warn); font-size:11px;">ON DECK</span>`
+          : '';
+
+      const initVal = group[0].initiative !== null ? `<span class="pill" style="font-size:12px; min-width:44px; text-align:center;">${group[0].initiative}</span>` : '';
+
+      const entries2 = group.map((e, idx) => {
+        const isDown = e.status === 'down';
+        const entryConds = e.kind === 'player'
+          ? (mpPlayerConns[e.playerPid]?.state?.character?.conditions || [])
+          : (e.conditions || []);
+        const isPickerOpen = mpInitCondPickerId === e.id;
+        const condPills = entryConds.map(name => `
+          <span class="pill" style="font-size:11px; background:rgba(255,107,107,.15); color:var(--bad); display:inline-flex; align-items:center; gap:4px;">
+            ${escapeHtml(name)}
+            <button class="btn" data-init-condrm="${escapeAttr(e.id)}" data-init-cond="${escapeAttr(name)}"
+                    style="font-size:10px; padding:0 6px; line-height:18px; min-width:18px; color:var(--bad); background:transparent; border:none;"
+                    title="Remove">×</button>
+          </span>`).join('');
+        const pickerHtml = isPickerOpen ? `
+          <div data-init-cond-picker="${escapeAttr(e.id)}" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; padding:6px 8px; background:rgba(255,255,255,.03); border-radius:6px;">
+            <select data-init-cond-select="${escapeAttr(e.id)}" style="font-size:12px;">
+              <option value="">— Select condition —</option>
+              ${CONDITIONS.map(x => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`).join('')}
+              <option value="__custom__">Custom...</option>
+            </select>
+            <button class="btn" data-init-cond-confirm="${escapeAttr(e.id)}" style="font-size:11px; padding:3px 8px;">Add</button>
+            <button class="btn" data-init-cond-cancel="${escapeAttr(e.id)}" style="font-size:11px; padding:3px 8px;">Cancel</button>
+          </div>` : '';
+        const isLastInGroup = idx === group.length - 1;
+        return `
+          <div class="${isDown ? 'init-entry init-down' : 'init-entry'}" style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:200px; padding:6px 10px; border-radius:8px; ${isDown ? 'opacity:.45;' : ''}${!isLastInGroup ? 'border-bottom:1px solid var(--line); padding-bottom:10px;' : ''}">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-weight:600; flex:1;">${escapeHtml(e.name)}</span>
+              ${isDown ? `<span class="pill" style="font-size:11px; background:rgba(255,107,107,.18); color:var(--bad);">DOWN</span>` : ''}
+              ${(() => { const ac = e.kind === 'player' ? mpPlayerConns[e.playerPid]?.state?.character?.combat?.ac : e.ac; return ac != null ? `<span class="pill" style="font-size:11px; min-width:46px; text-align:center;">AC ${ac}</span>` : ''; })()}
+              <span class="pill" style="font-size:11px; min-width:50px; text-align:center;
+                ${e.kind === 'player' ? 'background:rgba(107,255,179,.12); color:var(--good);' : e.kind === 'friendly' ? 'background:rgba(255,209,102,.15); color:var(--warn);' : 'background:rgba(255,107,107,.10); color:var(--bad);'}">
+                ${e.kind === 'player' ? 'Player' : e.kind === 'friendly' ? 'Friendly' : 'Enemy'}
+              </span>
+              <button class="btn" data-init-condadd="${escapeAttr(e.id)}"
+                      style="font-size:11px; padding:3px 8px;"
+                      title="Add status effect">+ Effect</button>
+              <button class="btn" data-init-down="${escapeAttr(e.id)}"
+                      style="font-size:11px; padding:3px 8px;"
+                      title="${isDown ? 'Revive' : 'Down'}">${isDown ? '↑ Revive' : '↓ Down'}</button>
+              <button class="btn" data-init-kill="${escapeAttr(e.id)}"
+                      style="font-size:11px; padding:3px 8px; color:var(--bad);"
+                      title="Kill / Remove">✕ Kill</button>
+            </div>
+            ${condPills ? `<div style="display:flex; flex-wrap:wrap; gap:4px;">${condPills}</div>` : ''}
+            ${pickerHtml}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="${rowClass}" style="
+          display:flex; flex-direction:column; align-items:stretch; gap:0;
+          background:var(--panel); border:1px solid ${isCurrent ? 'var(--accent)' : isOnDeck ? 'var(--warn)' : 'var(--line)'};
+          border-radius:10px; padding:10px 14px; margin-bottom:8px;
+          ${isCurrent ? 'box-shadow:0 0 0 2px rgba(124,192,255,.2);' : ''}">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:${group.length > 1 ? '10px' : '0'};">
+            ${initVal}
+            ${badge}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:0;">${entries2}</div>
+        </div>`;
+    }).join('');
+
+    entriesHtml = `<div style="max-width:900px; margin:0 auto;">${groupRows}</div>`;
+  }
+
+  return `
+    <div style="max-width:1400px; margin:0 auto; padding-top:4px;">
+      ${actionBar}
+      ${addForm}
+      ${entriesHtml}
+    </div>`;
 }
 
 function renderPlayerCard(pid, pd) {
@@ -364,6 +976,7 @@ function renderPlayerCard(pid, pd) {
         <button class="btn" data-expand="${pid}">${isExpanded ? 'Collapse' : 'View Details'}</button>
         ${isExpanded ? `<button class="btn" data-fullview="${pid}">Full Overview</button>` : ''}
         <button class="btn" data-notes="${pid}" ${isDisconnected ? 'disabled style="opacity:0.6; cursor:not-allowed;"' : ''}>Notes</button>
+        <button class="btn" data-remove="${pid}" style="color:var(--bad); margin-left:auto;" title="Remove this player from the game">Remove</button>
       </div>
       ${mpNotesExpanded.has(pid) ? `
         <div class="player-notes" style="padding:12px 16px; border-top:1px solid var(--line); background:rgba(8,12,18,.45);">

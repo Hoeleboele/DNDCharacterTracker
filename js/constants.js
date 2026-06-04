@@ -25,6 +25,8 @@ const SKILLS = [
   { key:'survival',        label:'Survival',         stat:'wis' },
 ];
 
+const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'];
+
 const EXAMPLE = {
   schema: 'dnd-char-tracker@1',
   exported_at: new Date().toISOString(),

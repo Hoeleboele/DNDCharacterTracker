@@ -9,7 +9,7 @@ function renderConditionsExhaustion(c){
     6: 'Death.'
   };
 
-  const condOptions = ['Blinded','Charmed','Deafened','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'];
+  const condOptions = CONDITIONS;
 
   $('#contentCard').innerHTML = `
     <div class="card" style="margin-bottom:12px; padding:12px 16px;">
