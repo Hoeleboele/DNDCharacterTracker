@@ -62,6 +62,9 @@ function wireNumberFields(rootSel){
       if (minVal != null && v < minVal) { v = minVal; inp.value = v; }
       setPath(state.character, path, v);
       state = normalize(state);
+      if (/^ability_scores\./.test(path) || path === 'combat.proficiency_bonus') {
+        if (typeof recomputeAttacks === 'function') recomputeAttacks(state.character);
+      }
       renderHeader();
     };
   });

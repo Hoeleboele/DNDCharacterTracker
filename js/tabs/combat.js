@@ -1,4 +1,182 @@
-﻿// ── Picker factory ────────────────────────────────────────────────────
+﻿// ── Global attack recompute (called when ability scores / prof bonus change) ─
+function recomputeAttacks(c) {
+  if (!c || !Array.isArray(c.attacks)) return;
+  c.attacks.forEach(atk => {
+    if (atk.to_hit_ability == null) return; // old attack without component fields
+    atk.to_hit  = computeToHit(c, atk.to_hit_ability, atk.to_hit_prof, atk.to_hit_extra);
+    atk.damage  = computeDamage(atk.damage_dice || '', c, atk.damage_ability, atk.damage_extra);
+  });
+}
+
+// ── Attack helpers ────────────────────────────────────────────────────
+const ABILITY_OPTS = [
+  { key: 'str', label: 'STR' },
+  { key: 'dex', label: 'DEX' },
+  { key: 'con', label: 'CON' },
+  { key: 'int', label: 'INT' },
+  { key: 'wis', label: 'WIS' },
+  { key: 'cha', label: 'CHA' },
+  { key: 'none', label: 'None' }
+];
+
+function getAbilityMod(c, ability) {
+  if (!ability || ability === 'none') return 0;
+  const score = toInt((c.ability_scores || {})[ability], 10);
+  return Math.floor((score - 10) / 2);
+}
+
+function computeToHit(c, ability, useProf, extra) {
+  const abilityMod = getAbilityMod(c, ability);
+  const profBonus = useProf ? toInt(c.combat?.proficiency_bonus, 2) : 0;
+  return abilityMod + profBonus + toInt(extra, 0);
+}
+
+function parseDiceFromNotes(notes) {
+  if (!notes) return '';
+  // Split on " - " (wiki properties separator) and keep only the dice part
+  const diceStr = notes.split(' - ')[0].trim();
+  return diceStr;
+}
+
+function computeDamage(dice, c, ability, extra) {
+  const bonus = getAbilityMod(c, ability) + toInt(extra, 0);
+  const diceStr = (dice || '').trim();
+  return diceStr ? `${diceStr} + ${bonus}` : `+ ${bonus}`;
+}
+
+function openAttackModal({ atk, onSave }) {
+  // Remove any existing modal
+  const existing = document.getElementById('attackModal');
+  if (existing) existing.remove();
+
+  const c = state.character;
+  // Pre-fill from stored components, or sensible defaults for old attacks
+  const name        = atk.name          || '';
+  const thAbility   = atk.to_hit_ability || 'str';
+  const thProf      = atk.to_hit_prof != null ? atk.to_hit_prof : true;
+  const thExtra     = atk.to_hit_extra  != null ? atk.to_hit_extra : 0;
+  const dmgDice     = atk.damage_dice   || '';
+  const dmgAbility  = atk.damage_ability || 'str';
+  const dmgExtra    = atk.damage_extra  != null ? atk.damage_extra : 0;
+  const notes       = atk.notes         || '';
+
+  const abilityOptions = (sel) => ABILITY_OPTS.map(o =>
+    `<option value="${o.key}" ${o.key === sel ? 'selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'attackModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div class="card" style="width:100%;max-width:420px;padding:20px;display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto;">
+      <h2 style="margin:0;">Edit Attack</h2>
+
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="font-weight:600;">Name</div>
+        <input id="amName" type="text" value="${escapeAttr(name)}" style="width:100%;" />
+      </label>
+
+      <div style="border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:10px;">
+        <div class="mini" style="font-weight:600;">To Hit</div>
+        <div class="grid2" style="gap:8px;">
+          <label class="col" style="gap:4px;">
+            <div class="mini">Ability</div>
+            <select id="amThAbility">${abilityOptions(thAbility)}</select>
+          </label>
+          <label class="col" style="gap:4px;">
+            <div class="mini">Extra bonus</div>
+            <input id="amThExtra" type="number" value="${escapeAttr(String(thExtra))}" style="width:100%;" />
+          </label>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input id="amThProf" type="checkbox" ${thProf ? 'checked' : ''} />
+          <span class="mini">Add proficiency bonus</span>
+        </label>
+        <div id="amThPreview" class="mini" style="color:var(--accent);font-weight:600;"></div>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:10px;">
+        <div class="mini" style="font-weight:600;">Damage</div>
+        <label class="col" style="gap:4px;">
+          <div class="mini">Dice (e.g. 1d8 slashing)</div>
+          <input id="amDmgDice" type="text" value="${escapeAttr(dmgDice)}" style="width:100%;" />
+        </label>
+        <div class="grid2" style="gap:8px;">
+          <label class="col" style="gap:4px;">
+            <div class="mini">Ability modifier</div>
+            <select id="amDmgAbility">${abilityOptions(dmgAbility)}</select>
+          </label>
+          <label class="col" style="gap:4px;">
+            <div class="mini">Extra bonus</div>
+            <input id="amDmgExtra" type="number" value="${escapeAttr(String(dmgExtra))}" style="width:100%;" />
+          </label>
+        </div>
+        <div id="amDmgPreview" class="mini" style="color:var(--accent);font-weight:600;"></div>
+      </div>
+
+      <label class="col" style="gap:4px;">
+        <div class="mini">Notes</div>
+        <input id="amNotes" type="text" value="${escapeAttr(notes)}" style="width:100%;" />
+      </label>
+
+      <div class="row" style="gap:8px;margin-top:4px;">
+        <button class="btn good" id="amSave" style="flex:1;">Save</button>
+        <button class="btn danger" id="amCancel">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Live preview updater
+  function updatePreviews() {
+    const ability  = document.getElementById('amThAbility').value;
+    const useProf  = document.getElementById('amThProf').checked;
+    const extra    = toInt(document.getElementById('amThExtra').value, 0);
+    const th       = computeToHit(c, ability, useProf, extra);
+    document.getElementById('amThPreview').textContent = `To Hit: ${signed(th)}`;
+
+    const dAbility = document.getElementById('amDmgAbility').value;
+    const dExtra   = toInt(document.getElementById('amDmgExtra').value, 0);
+    const dice     = document.getElementById('amDmgDice').value.trim();
+    document.getElementById('amDmgPreview').textContent = `Damage: ${computeDamage(dice, c, dAbility, dExtra)}`;
+  }
+
+  updatePreviews();
+  ['amThAbility','amThProf','amThExtra','amDmgAbility','amDmgExtra','amDmgDice'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updatePreviews);
+    document.getElementById(id).addEventListener('change', updatePreviews);
+  });
+
+  document.getElementById('amSave').onclick = () => {
+    const ability  = document.getElementById('amThAbility').value;
+    const useProf  = document.getElementById('amThProf').checked;
+    const extra    = toInt(document.getElementById('amThExtra').value, 0);
+    const dAbility = document.getElementById('amDmgAbility').value;
+    const dExtra   = toInt(document.getElementById('amDmgExtra').value, 0);
+    const dice     = document.getElementById('amDmgDice').value.trim();
+
+    atk.name           = document.getElementById('amName').value.trim() || 'Attack';
+    atk.to_hit_ability = ability;
+    atk.to_hit_prof    = useProf;
+    atk.to_hit_extra   = extra;
+    atk.to_hit         = computeToHit(c, ability, useProf, extra);
+    atk.damage_dice    = dice;
+    atk.damage_ability = dAbility;
+    atk.damage_extra   = dExtra;
+    atk.damage         = computeDamage(dice, c, dAbility, dExtra);
+    atk.notes          = document.getElementById('amNotes').value.trim();
+
+    overlay.remove();
+    onSave(atk);
+  };
+
+  const closeModal = () => overlay.remove();
+  document.getElementById('amCancel').onclick = closeModal;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+}
+
+// ── Picker factory ────────────────────────────────────────────────────
 function openPicker({ pickerId, insertAfterId, items, onSelect, onManual, onCancel, title, manualLabel = '+ Manual entry' }) {
   const existing = document.getElementById(pickerId);
   if (existing) { existing.remove(); return; }
@@ -38,6 +216,7 @@ function openPicker({ pickerId, insertAfterId, items, onSelect, onManual, onCanc
 }
 
 function renderCombat(c){
+  recomputeAttacks(c);
   const effects = computeExhaustionEffects(c);
   const hpMax = effects.effectiveHpMax ?? (c.hp.max || 1);
   const hpCur = clamp(Number(c.hp.current) || 0, 0, hpMax);
@@ -193,13 +372,37 @@ function renderCombat(c){
       onSelect: (item, idx) => {
         const w = equippedWeapons[idx];
         c.attacks = c.attacks || [];
-        c.attacks.push({ name: w.name, to_hit: defaultToHit, damage: w.notes || '', notes: '' });
-        render();
+        const atk = {
+          name: w.name,
+          to_hit: defaultToHit,
+          to_hit_ability: 'str',
+          to_hit_prof: true,
+          to_hit_extra: 0,
+          damage: '',
+          damage_dice: parseDiceFromNotes(w.notes || ''),
+          damage_ability: 'str',
+          damage_extra: 0,
+          notes: ''
+        };
+        c.attacks.push(atk);
+        openAttackModal({ atk, onSave: () => { saveToLocalStorage(); render(); } });
       },
       onManual: () => {
         c.attacks = c.attacks || [];
-        c.attacks.push({ name:'New Attack', to_hit: defaultToHit, damage:'', notes:'' });
-        render();
+        const atk = {
+          name: 'New Attack',
+          to_hit: defaultToHit,
+          to_hit_ability: 'str',
+          to_hit_prof: true,
+          to_hit_extra: 0,
+          damage: '',
+          damage_dice: '',
+          damage_ability: 'str',
+          damage_extra: 0,
+          notes: ''
+        };
+        c.attacks.push(atk);
+        openAttackModal({ atk, onSave: () => { saveToLocalStorage(); render(); } });
       },
       onCancel: () => {}
     });
@@ -322,7 +525,6 @@ function renderCombat(c){
         <div class="col" style="min-width:160px;">
           <div class="row" style="justify-content:flex-end;">
             <button class="btn" data-atk-edit="${i}">Edit</button>
-            <button class="btn" data-atk-tohit="${i}">To Hit</button>
             <button class="btn danger" data-atk-del="${i}">Delete</button>
           </div>
         </div>
@@ -333,26 +535,7 @@ function renderCombat(c){
     list.querySelectorAll('[data-atk-edit]').forEach(btn => btn.onclick = () => {
       const i = toInt(btn.dataset.atkEdit, -1);
       const atk = c.attacks[i];
-      const name = prompt('Name:', atk.name ?? '');
-      if (name == null) return;
-      const dmg = prompt('Damage text:', atk.damage ?? '');
-      if (dmg == null) return;
-      const notes = prompt('Notes:', atk.notes ?? '');
-      if (notes == null) return;
-      atk.name = name;
-      atk.damage = dmg;
-      atk.notes = notes;
-      render();
-    });
-
-    list.querySelectorAll('[data-atk-tohit]').forEach(btn => btn.onclick = () => {
-      const i = toInt(btn.dataset.atkTohit, -1);
-      const atk = c.attacks[i];
-      const toHit = prompt('To-hit bonus (blank for none):', atk.to_hit ?? '');
-      if (toHit == null) return;
-      const th = String(toHit).trim();
-      atk.to_hit = th !== '' ? toInt(th, 0) : null;
-      render();
+      openAttackModal({ atk, onSave: () => { saveToLocalStorage(); render(); } });
     });
 
     list.querySelectorAll('[data-atk-del]').forEach(btn => btn.onclick = () => {
