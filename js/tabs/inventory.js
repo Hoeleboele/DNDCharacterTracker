@@ -81,11 +81,10 @@ function renderInventory(c){
             ${['weapon','armor'].includes(it.type) ? `<button class="btn" data-it-lookup="${i}">Lookup</button>` : ''}
             ${it.type === 'pack' ? `<button class="btn" data-it-pack-lookup="${i}">Lookup</button>` : ''}
             ${it.type === 'pack' ? `<button class="btn" data-it-contents="${i}">Contents</button>` : ''}
-            <button class="btn" data-it-notes="${i}">Notes</button>
+            ${it.type !== 'pack' ? `<button class="btn" data-it-notes="${i}">Notes</button>` : ''}
             <button class="btn danger" data-it-del="${i}">Delete</button>
           </div>
-          ${it.notes ? `<div class="mini" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.notes)}</div>` : ''}
-          ${it.type === 'pack' && it.contents ? `<div class="mini muted" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.contents.length > 120 ? it.contents.slice(0,120)+'…' : it.contents)}</div>` : ''}
+          ${it.type !== 'pack' && it.notes ? `<div class="mini" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.notes)}</div>` : ''}
         </div>
       `;
     }

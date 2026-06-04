@@ -26,6 +26,7 @@
           <input id="smSubtitle" type="text" value="${escapeAttr(spell.subtitle || '')}" placeholder="e.g. 1st-level Divination" style="width:100%;" />
         </label>
       </div>
+      ` : ''}
 
       <div class="grid2" style="gap:8px;">
         <label class="col" style="gap:4px;">
@@ -53,7 +54,6 @@
         <div class="mini" style="font-weight:600;">Description</div>
         <textarea id="smDescription" style="width:100%;min-height:80px;padding:8px;font-size:13px;box-sizing:border-box;">${escapeHtml(spell.description || '')}</textarea>
       </label>
-      ` : ''}
 
       <label class="col" style="gap:4px;">
         <div class="mini" style="font-weight:600;">Notes</div>
@@ -85,14 +85,14 @@
     if (!name) { document.getElementById('smName').focus(); return; }
     spell.name = name;
     spell.notes = document.getElementById('smNotes').value;
+    spell.casting_time = document.getElementById('smCastingTime').value.trim();
+    spell.range_area = document.getElementById('smRangeArea').value.trim();
+    spell.duration = document.getElementById('smDuration').value.trim();
+    spell.components = document.getElementById('smComponents').value.trim();
+    spell.description = document.getElementById('smDescription').value;
     if (hasLevel) {
       spell.level = clamp(toInt(document.getElementById('smLevel').value, 1), 0, 9);
       spell.subtitle = document.getElementById('smSubtitle').value.trim();
-      spell.casting_time = document.getElementById('smCastingTime').value.trim();
-      spell.range_area = document.getElementById('smRangeArea').value.trim();
-      spell.duration = document.getElementById('smDuration').value.trim();
-      spell.components = document.getElementById('smComponents').value.trim();
-      spell.description = document.getElementById('smDescription').value;
     }
     close();
     onSave && onSave();
