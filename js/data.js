@@ -184,49 +184,64 @@ async function wikiLookupLineage(featureName, race) {
 
   const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
   const pageContent = doc.querySelector('#page-content') || doc.body;
-  const featureNameLower = featureName.toLowerCase().trim();
+  const normalizeFeatureLabel = value => value
+    .toLowerCase()
+    .replace(/[:\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const featureLabel = normalizeFeatureLabel(featureName);
+  const hasTrailingColon = value => /:\s*$/.test(value || '');
+  const isBoldFeatureLabelNode = node => {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (!['STRONG', 'B'].includes(node.tagName)) return false;
+    const raw = node.textContent.trim();
+    if (!raw) return false;
+    if (hasTrailingColon(raw)) return true;
 
-  // 1. Try matching a heading (h2/h3/h4) that contains the feature name, then gather following paragraphs.
-  const headings = Array.from(pageContent.querySelectorAll('h2, h3, h4'));
-  for (const heading of headings) {
-    if (heading.textContent.trim().toLowerCase().includes(featureNameLower)) {
-      const parts = [];
-      let node = heading.nextElementSibling;
-      while (node && !['H2', 'H3', 'H4'].includes(node.tagName)) {
-        const text = node.textContent.trim();
-        if (text.length > 10) parts.push(text);
-        node = node.nextElementSibling;
+    let next = node.nextSibling;
+    while (next && next.nodeType === Node.TEXT_NODE && !next.textContent.trim()) next = next.nextSibling;
+    return !!(next && next.nodeType === Node.TEXT_NODE && /^\s*:/.test(next.textContent || ''));
+  };
+  const extractDescriptionAfterLabel = strong => {
+    let sawColon = hasTrailingColon(strong.textContent.trim());
+    let description = '';
+
+    for (let node = strong.nextSibling; node; node = node.nextSibling) {
+      if (isBoldFeatureLabelNode(node)) break;
+
+      let text = node.textContent || '';
+      if (!text) continue;
+
+      if (!sawColon) {
+        const colonMatch = text.match(/^\s*:\s*/);
+        if (!colonMatch) {
+          if (!text.trim()) continue;
+          return '';
+        }
+        sawColon = true;
+        text = text.slice(colonMatch[0].length);
       }
-      if (parts.length) return parts.join('\n\n');
-    }
-  }
 
-  // 2. Try matching a bold/strong label inside a paragraph (common wikidot trait list style).
+      description += text;
+    }
+
+    return sawColon ? description.trim() : '';
+  };
+
+  // Match a bold label inside a paragraph and require the description to follow a colon.
   const paragraphs = Array.from(pageContent.querySelectorAll('p'));
   for (const p of paragraphs) {
-    const strong = p.querySelector('strong, b');
-    if (strong && strong.textContent.trim().toLowerCase().includes(featureNameLower)) {
-      const text = p.textContent.trim();
-      let description = text;
-      const label = strong.textContent.trim();
-      if (label && description.toLowerCase().startsWith(label.toLowerCase())) {
-        description = description.slice(label.length).trim();
-      }
-      description = description.replace(/^[:.\-]\s*/, '').trim();
-      if (description.length > 15) return description;
-      if (text.length > 15) return text;
+    const strongs = Array.from(p.querySelectorAll('strong, b'));
+    for (const strong of strongs) {
+      const rawLabel = strong.textContent.trim();
+      if (normalizeFeatureLabel(rawLabel) !== featureLabel) continue;
+
+      const description = extractDescriptionAfterLabel(strong);
+      if (description) return description;
     }
   }
 
-  // 3. Fallback: return a concise summary of lineage traits (first meaningful paragraphs).
-  const skipPat = /^(age|size|speed|languages|ability score|source|table of contents)/i;
-  const traitParts = paragraphs
-    .map(el => el.textContent.trim())
-    .filter(t => t.length > 30 && !skipPat.test(t));
-
-  if (traitParts.length) return traitParts.slice(0, 4).join('\n\n');
-
-  throw new Error(`No content found for "${featureName}" on the ${race} lineage page.`);
+  throw new Error(`No bold "${featureName}:" label was found on the ${race} lineage page.`);
 }
 
 
