@@ -1,4 +1,10 @@
-﻿function renderSpells(c){
+﻿// Global state to preserve header open/closed state across renders
+window.spellTabHeaderState = window.spellTabHeaderState || {
+  spellcasting: false,
+  spellSlots: false
+};
+
+function renderSpells(c){
   const s = c.spellcasting;
   if (!s) {
     $('#contentCard').innerHTML = `
@@ -24,7 +30,7 @@
           <h2 style="margin:0;">Spellcasting</h2>
           <button id="btnSpellcastingToggle" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:0;margin-top:2px;">▶</button>
         </div>
-        <div id="spellcastingContent" class="list" style="margin-top:10px;display:none;">
+        <div id="spellcastingContent" class="list" style="margin-top:10px;display:${window.spellTabHeaderState.spellcasting ? 'block' : 'none'};">
           <div class="grid3">
             ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
             <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}<button id="btnDcToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
@@ -38,7 +44,7 @@
           <h2 style="margin:0;">Spell Slots</h2>
           <button id="btnSpellSlotsToggle" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:0;margin-top:2px;">▶</button>
         </div>
-        <div id="spellSlotsContent" class="list" style="margin-top:10px;display:none;">
+        <div id="spellSlotsContent" class="list" style="margin-top:10px;display:${window.spellTabHeaderState.spellSlots ? 'block' : 'none'};">
           <div class="list" id="slotsList" style="margin-top:10px;"></div>
           <button class="btn" id="btnAddSlot">Add Slot Level</button>
         </div>
@@ -99,6 +105,7 @@
     const isOpen = content.style.display !== 'none';
     content.style.display = isOpen ? 'none' : 'block';
     btn.textContent = isOpen ? '▶' : '▼';
+    window.spellTabHeaderState.spellcasting = !isOpen;
   };
   document.getElementById('btnSpellSlotsToggle').onclick = () => {
     const content = document.getElementById('spellSlotsContent');
@@ -106,7 +113,12 @@
     const isOpen = content.style.display !== 'none';
     content.style.display = isOpen ? 'none' : 'block';
     btn.textContent = isOpen ? '▶' : '▼';
+    window.spellTabHeaderState.spellSlots = !isOpen;
   };
+
+  // Initialize button text to match saved state
+  document.getElementById('btnSpellcastingToggle').textContent = window.spellTabHeaderState.spellcasting ? '▼' : '▶';
+  document.getElementById('btnSpellSlotsToggle').textContent = window.spellTabHeaderState.spellSlots ? '▼' : '▶';
 
   // Re-render when ability changes so DC/attack bonus update immediately
   const abilitySel = $('#contentCard').querySelector('[data-sel="spellcasting.ability"]');

@@ -124,19 +124,64 @@ function renderSpellSlots(c, containerSel, compact){
         <div>
           <div class="row" style="justify-content:space-between; align-items:center;">
             <b>Level ${toInt(x.level,1)} Slots ${fieldStar(slotKey, slotLabel)}</b>
-            <span class="pill"><b>${used}</b> / ${max}</span>
+            <span style="display:flex;gap:8px;align-items:center;">
+              <input type="number" data-slot-used="${i}" value="${used}" min="0" style="width:48px;padding:4px;font-weight:700;" />
+              <span>/</span>
+              <input type="number" data-slot-max="${i}" value="${max}" min="0" max="99" style="width:48px;padding:4px;font-weight:700;" />
+            </span>
           </div>
           <div class="mini">Used: ${used}. Remaining: ${Math.max(0, max-used)}.</div>
         </div>
         <div class="row" style="justify-content:flex-end; align-items:center;">
           <button class="btn" data-slot-use="${i}">Use</button>
           <button class="btn" data-slot-refund="${i}">Refund</button>
-          <button class="btn" data-slot-set="${i}">Set Max</button>
           <button class="btn danger" data-slot-del="${i}">Delete</button>
         </div>
       </div>
     `;
   }).join('');
+
+  // Wire input handlers (these don't trigger full render to avoid losing focus)
+  container.querySelectorAll('[data-slot-max]').forEach(inp => {
+    inp.oninput = () => {
+      const i = toInt(inp.dataset.slotMax, -1);
+      const ss = slots[i];
+      let v = toInt(inp.value, 0);
+      v = clamp(v, 0, 99);
+      ss.max = v;
+      ss.used = clamp(toInt(ss.used, 0), 0, ss.max);
+      // Don't call render() - just keep the input focused
+    };
+    inp.onchange = () => {
+      // On blur/change, ensure used <= max and update display
+      const i = toInt(inp.dataset.slotMax, -1);
+      const ss = slots[i];
+      let v = toInt(inp.value, 0);
+      v = clamp(v, 0, 99);
+      ss.max = v;
+      ss.used = clamp(toInt(ss.used, 0), 0, ss.max);
+      renderHeader(); // Update header but don't lose focus on this tab
+    };
+  });
+
+  container.querySelectorAll('[data-slot-used]').forEach(inp => {
+    inp.oninput = () => {
+      const i = toInt(inp.dataset.slotUsed, -1);
+      const ss = slots[i];
+      let v = toInt(inp.value, 0);
+      v = clamp(v, 0, toInt(ss.max, 0));
+      ss.used = v;
+      // Don't call render() - just keep the input focused
+    };
+    inp.onchange = () => {
+      const i = toInt(inp.dataset.slotUsed, -1);
+      const ss = slots[i];
+      let v = toInt(inp.value, 0);
+      v = clamp(v, 0, toInt(ss.max, 0));
+      ss.used = v;
+      renderHeader(); // Update header but don't lose focus on this tab
+    };
+  });
 
   // wire handlers (always wire Use)
   container.querySelectorAll('[data-slot-use]').forEach(btn => btn.onclick = () => {
@@ -152,15 +197,6 @@ function renderSpellSlots(c, containerSel, compact){
     const i = toInt(btn.dataset.slotRefund, -1);
     const ss = slots[i];
     ss.used = clamp(toInt(ss.used, 0) - 1, 0, toInt(ss.max, 0));
-    render();
-  });
-  container.querySelectorAll('[data-slot-set]').forEach(btn => btn.onclick = () => {
-    const i = toInt(btn.dataset.slotSet, -1);
-    const ss = slots[i];
-    const max = prompt('Set slot max:', ss.max);
-    if (max == null) return;
-    ss.max = clamp(toInt(max, 0), 0, 99);
-    ss.used = clamp(toInt(ss.used, 0), 0, ss.max);
     render();
   });
   container.querySelectorAll('[data-slot-del]').forEach(btn => btn.onclick = () => {
