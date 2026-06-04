@@ -276,6 +276,21 @@ function renderCombat(c){
       <div class="col" id="combatSpellsCol">
         <h2>Spells</h2>
         <div class="mini">Prepared or custom spells ready to cast.</div>
+        ${(() => {
+          const s = c.spellcasting;
+          const profBonus = toInt(c.combat.proficiency_bonus, 2);
+          const abilKey = (s.ability || 'INT').toLowerCase();
+          const abilScore = toInt(c.ability_scores?.[abilKey], 10);
+          const abilMod = Math.floor((abilScore - 10) / 2);
+          const dcBonus  = toInt(s.dc_bonus, 0);
+          const atkBonusExtra = toInt(s.atk_bonus, 0);
+          const saveDC   = 8 + profBonus + abilMod + dcBonus;
+          const atkBonus = profBonus + abilMod + atkBonusExtra;
+          return `<div class="row" style="gap:8px; margin-top:8px; margin-bottom:8px;">
+            <span class="pill">Save DC ${saveDC}</span>
+            <span class="pill">Spell Attack ${atkBonus >= 0 ? '+' : ''}${atkBonus}</span>
+          </div>`;
+        })()}
         <h3 style="margin-top:10px; margin-bottom:6px; font-size:1.05em;">Spell Slots</h3>
         <div class="list" id="combatSlotsList" style="margin-top:6px;"></div>
         <div style="height:8px"></div>
@@ -666,9 +681,6 @@ function renderCombat(c){
               ${hasStats ? `<div class="spell-card-stats">${statsHtml}</div>` : ''}
               ${hasStats && x.description ? `<hr class="spell-card-rule" />` : ''}
               ${x.description ? `<div class="spell-card-desc">${escapeHtml(x.description).replace(/\n/g,'<br/>')}</div>` : '<div class="mini">No description yet.</div>'}
-              <div class="row" style="margin-top:12px; gap:8px;">
-                <button class="btn" data-csp-edit="${i}">Edit Details</button>
-              </div>
             </div>
           </div>
         </div>
@@ -680,29 +692,6 @@ function renderCombat(c){
       const isOpen = card.style.display !== 'none';
       card.style.display = isOpen ? 'none' : 'block';
       btn.textContent = isOpen ? 'Details' : 'Close';
-    });
-
-    list.querySelectorAll('[data-csp-edit]').forEach(btn => btn.onclick = () => {
-      const i = toInt(btn.dataset.cspEdit, -1);
-      const sp = c.combat_spells[i];
-      const name = prompt('Name:', sp.name ?? '');
-      if (name == null) return;
-      const subtitle = prompt('Subtitle (e.g. "1st-level Evocation"):', sp.subtitle ?? '');
-      if (subtitle == null) return;
-      const casting_time = prompt('Casting Time:', sp.casting_time ?? '');
-      if (casting_time == null) return;
-      const range_area = prompt('Range/Area:', sp.range_area ?? '');
-      if (range_area == null) return;
-      const duration = prompt('Duration:', sp.duration ?? '');
-      if (duration == null) return;
-      const components = prompt('Components:', sp.components ?? '');
-      if (components == null) return;
-      const description = prompt('Description:', sp.description ?? '');
-      if (description == null) return;
-      sp.name = name; sp.subtitle = subtitle; sp.casting_time = casting_time;
-      sp.range_area = range_area; sp.duration = duration; sp.components = components;
-      sp.description = description;
-      render();
     });
 
     list.querySelectorAll('[data-csp-del]').forEach(btn => btn.onclick = () => {
