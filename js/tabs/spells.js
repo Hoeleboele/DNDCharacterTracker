@@ -165,7 +165,7 @@ function renderSpells(c){
       <div class="col">
         <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;">
           <h2>Prepared Spells</h2>
-          ${(() => { const cnt = (s.prepared_spells||[]).length; const mx = toInt(s.max_prepared,1); const over = cnt > mx; return `<span style="font-size:1.1em; font-weight:700; color:${over ? 'var(--bad)' : 'var(--accent)'}">${cnt}</span><span style="color:var(--muted)"> / </span><input type="number" id="inlineMaxPrepared" value="${mx}" min="1" style="width:52px; font-size:1em; font-weight:700; text-align:center; padding:2px 4px;">`; })()}
+          ${(() => { const cnt = (s.prepared_spells||[]).length; const mx = toInt(s.max_prepared,1); const over = cnt > mx; return `<span id="inlinePreparedCount" style="font-size:1.1em; font-weight:700; color:${over ? 'var(--bad)' : 'var(--accent)'}">${cnt}</span><span style="color:var(--muted)"> / </span><input type="text" inputmode="numeric" pattern="[0-9]*" id="inlineMaxPrepared" value="${mx}" style="width:52px; font-size:1em; font-weight:700; text-align:center; padding:2px 4px;">`; })()}
         </div>
         <div class="mini">Track what you have ready today. (Yes, you can forget to update this. That’s the tradition.)</div>
         <div class="list" id="preparedList" style="margin-top:10px;"></div>
@@ -183,17 +183,28 @@ function renderSpells(c){
 
   // extra bonus fields and max_prepared must re-render to update the computed values
   const maxPrepInp = document.getElementById('inlineMaxPrepared');
+  const preparedCountEl = document.getElementById('inlinePreparedCount');
   if (maxPrepInp) {
-    // Keep focus while editing; only commit UI re-render when focus leaves the field.
+    const updatePreparedCounterState = () => {
+      if (!preparedCountEl) return;
+      const preparedCount = (s.prepared_spells || []).length;
+      preparedCountEl.style.color = preparedCount > toInt(s.max_prepared, 1) ? 'var(--bad)' : 'var(--accent)';
+    };
+
+    // Keep focus while editing and avoid full render while keyboard is open.
     maxPrepInp.oninput = () => {
-      const v = Math.max(1, toInt(maxPrepInp.value, 1));
+      const digitsOnly = (maxPrepInp.value || '').replace(/\D+/g, '');
+      const v = Math.max(1, toInt(digitsOnly || '1', 1));
       s.max_prepared = v;
+      updatePreparedCounterState();
     };
     maxPrepInp.onblur = () => {
-      let v = toInt(maxPrepInp.value, 1);
-      if (v < 1) { v = 1; maxPrepInp.value = 1; }
+      const digitsOnly = (maxPrepInp.value || '').replace(/\D+/g, '');
+      let v = toInt(digitsOnly || '1', 1);
+      if (v < 1) v = 1;
+      maxPrepInp.value = String(v);
       s.max_prepared = v;
-      render();
+      updatePreparedCounterState();
     };
   };
   const dcBonusInp = $('#contentCard').querySelector('[data-num="spellcasting.dc_bonus"]');

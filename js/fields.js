@@ -128,7 +128,7 @@ function renderSpellSlots(c, containerSel, compact){
           <div class="row" style="justify-content:space-between; align-items:center;">
             <b>Level ${toInt(x.level,1)} Slots ${fieldStar(slotKey, slotLabel)}</b>
             <span style="display:flex;gap:8px;align-items:center;">
-              <input type="number" data-slot-used="${i}" value="${used}" min="0" style="width:48px;padding:4px;font-weight:700;" />
+              <span class="pill" style="min-width:48px;text-align:center;padding:4px 8px;font-weight:700;">${used}</span>
               <span>/</span>
               <input type="number" data-slot-max="${i}" value="${max}" min="0" max="99" style="width:48px;padding:4px;font-weight:700;" />
             </span>
@@ -163,25 +163,6 @@ function renderSpellSlots(c, containerSel, compact){
       v = clamp(v, 0, 99);
       ss.max = v;
       ss.used = clamp(toInt(ss.used, 0), 0, ss.max);
-      renderHeader(); // Update header but don't lose focus on this tab
-    };
-  });
-
-  container.querySelectorAll('[data-slot-used]').forEach(inp => {
-    inp.oninput = () => {
-      const i = toInt(inp.dataset.slotUsed, -1);
-      const ss = slots[i];
-      let v = toInt(inp.value, 0);
-      v = clamp(v, 0, toInt(ss.max, 0));
-      ss.used = v;
-      // Don't call render() - just keep the input focused
-    };
-    inp.onchange = () => {
-      const i = toInt(inp.dataset.slotUsed, -1);
-      const ss = slots[i];
-      let v = toInt(inp.value, 0);
-      v = clamp(v, 0, toInt(ss.max, 0));
-      ss.used = v;
       renderHeader(); // Update header but don't lose focus on this tab
     };
   });
