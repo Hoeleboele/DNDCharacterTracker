@@ -4,8 +4,10 @@
   if (!Array.isArray(c.skill_disadvantages)) c.skill_disadvantages = [];
   if (!Array.isArray(c.saving_throw_proficiencies)) c.saving_throw_proficiencies = [];
   if (!Array.isArray(c.ability_disadvantages)) c.ability_disadvantages = [];
+  if (typeof c.stats_lock_toggles !== 'boolean') c.stats_lock_toggles = false;
   const as = c.ability_scores;
   const profBonus = c.combat.proficiency_bonus || 2;
+  const editingLocked = !!c.stats_lock_toggles;
 
   const stats = [
     { key:'str', label:'Strength',     abbr:'STR' },
@@ -69,6 +71,10 @@
 
       <div class="col">
         <h2>Saving throws <span class="mini" style="margin-left:6px;">Prof bonus: +${profBonus}</span></h2>
+        <div class="row" style="justify-content:space-between; margin-top:8px;">
+          <span class="mini">Lock proficiency/disadvantage editing</span>
+          <button id="statsLockToggle" class="btn" type="button">${editingLocked ? 'Unlock' : 'Lock'}</button>
+        </div>
         <div class="skill-list" style="margin-top:10px;">
           ${stats.map(s => {
             const savePro = c.saving_throw_proficiencies.includes(s.key);
@@ -76,8 +82,8 @@
             const saveTotal = abilityMod(s.key) + (savePro ? profBonus : 0);
             return `
               <div class="skill-row ability-in-list">
-                <button class="skill-prof-dot${savePro ? ' proficient' : ''}" data-save-toggle="${s.key}" title="Toggle saving throw proficiency"></button>
-                <button class="skill-dis-btn${saveDis ? ' active' : ''}" data-save-dis="${s.key}" title="Toggle disadvantage">DIS</button>
+                <button class="skill-prof-dot${savePro ? ' proficient' : ''}${editingLocked ? ' locked' : ''}" data-save-toggle="${s.key}" title="Toggle saving throw proficiency" ${editingLocked ? 'disabled' : ''}></button>
+                <button class="skill-dis-btn${saveDis ? ' active' : ''}${editingLocked ? ' locked' : ''}" data-save-dis="${s.key}" title="Toggle disadvantage" ${editingLocked ? 'disabled' : ''}>DIS</button>
                 <span class="skill-mod-val" data-save-mod="${s.key}" style="color:${saveTotal >= 0 ? 'var(--good)' : 'var(--bad)'}">${saveTotal >= 0 ? '+' : ''}${saveTotal}</span>
                 <span class="skill-name">${s.label}</span>
                 <span class="skill-stat-tag">${s.abbr}</span>
@@ -95,8 +101,8 @@
             const isDis = c.skill_disadvantages.includes(sk.key);
             return `
               <div class="skill-row">
-                <button class="skill-prof-dot${isProficient ? ' proficient' : ''}" data-skill-toggle="${sk.key}" title="Toggle proficiency"></button>
-                <button class="skill-dis-btn${isDis ? ' active' : ''}" data-skill-dis="${sk.key}" title="Toggle disadvantage">DIS</button>
+                <button class="skill-prof-dot${isProficient ? ' proficient' : ''}${editingLocked ? ' locked' : ''}" data-skill-toggle="${sk.key}" title="Toggle proficiency" ${editingLocked ? 'disabled' : ''}></button>
+                <button class="skill-dis-btn${isDis ? ' active' : ''}${editingLocked ? ' locked' : ''}" data-skill-dis="${sk.key}" title="Toggle disadvantage" ${editingLocked ? 'disabled' : ''}>DIS</button>
                 <span class="skill-mod-val" data-skill-mod="${sk.key}" style="color:${t >= 0 ? 'var(--good)' : 'var(--bad)'}">${skillModStr(sk)}</span>
                 <span class="skill-name">${sk.label}</span>
                 <span class="skill-stat-tag">${statAbbr[sk.stat]}</span>
@@ -107,6 +113,24 @@
       </div>
     </div>
   `;
+
+  function setProfDisControlsLocked(locked) {
+    const lockBtn = $('#statsLockToggle');
+    if (lockBtn) lockBtn.textContent = locked ? 'Unlock' : 'Lock';
+    $('#contentCard').querySelectorAll('[data-skill-toggle], [data-skill-dis], [data-save-toggle], [data-save-dis]').forEach(btn => {
+      btn.disabled = locked;
+      btn.classList.toggle('locked', locked);
+    });
+  }
+
+  const lockBtn = $('#statsLockToggle');
+  if (lockBtn) {
+    lockBtn.onclick = () => {
+      c.stats_lock_toggles = !c.stats_lock_toggles;
+      setProfDisControlsLocked(c.stats_lock_toggles);
+      saveToLocalStorage();
+    };
+  }
 
   $('#contentCard').querySelectorAll('[data-stat]').forEach(inp => {
     inp.oninput = () => {
@@ -144,6 +168,7 @@
 
   $('#contentCard').querySelectorAll('[data-skill-toggle]').forEach(btn => {
     btn.onclick = () => {
+      if (c.stats_lock_toggles) return;
       const key = btn.dataset.skillToggle;
       const idx = c.skill_proficiencies.indexOf(key);
       if (idx === -1) c.skill_proficiencies.push(key);
@@ -161,6 +186,7 @@
 
   $('#contentCard').querySelectorAll('[data-skill-dis]').forEach(btn => {
     btn.onclick = () => {
+      if (c.stats_lock_toggles) return;
       const key = btn.dataset.skillDis;
       const idx = c.skill_disadvantages.indexOf(key);
       if (idx === -1) c.skill_disadvantages.push(key);
@@ -173,6 +199,7 @@
   // Saving throw proficiency toggles for abilities (update all matching elements)
   $('#contentCard').querySelectorAll('[data-save-toggle]').forEach(btn => {
     btn.onclick = () => {
+      if (c.stats_lock_toggles) return;
       const key = btn.dataset.saveToggle;
       const idx = c.saving_throw_proficiencies.indexOf(key);
       if (idx === -1) c.saving_throw_proficiencies.push(key);
@@ -193,6 +220,7 @@
   // Ability disadvantage toggles
   $('#contentCard').querySelectorAll('[data-save-dis]').forEach(btn => {
     btn.onclick = () => {
+      if (c.stats_lock_toggles) return;
       const key = btn.dataset.saveDis;
       const idx = c.ability_disadvantages.indexOf(key);
       if (idx === -1) c.ability_disadvantages.push(key);
@@ -202,4 +230,6 @@
       saveToLocalStorage();
     };
   });
+
+  setProfDisControlsLocked(c.stats_lock_toggles);
 }

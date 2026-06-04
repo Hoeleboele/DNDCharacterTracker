@@ -95,6 +95,7 @@ function normalize(data){
 
   if (!Array.isArray(out.character.skill_proficiencies)) out.character.skill_proficiencies = [];
   if (!Array.isArray(out.character.skill_disadvantages)) out.character.skill_disadvantages = [];
+  out.character.stats_lock_toggles = !!out.character.stats_lock_toggles;
 
   return out;
 }

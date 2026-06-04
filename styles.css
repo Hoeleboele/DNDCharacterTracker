@@ -358,6 +358,14 @@
       background:rgba(255,107,107,.15);
       color:var(--bad);
     }
+    .skill-dis-btn:disabled,
+    .skill-dis-btn.locked,
+    .skill-prof-dot:disabled,
+    .skill-prof-dot.locked{
+      opacity:.45;
+      cursor:not-allowed;
+      filter:saturate(.35);
+    }
     .skill-row:hover{ background:rgba(255,255,255,.04); }
     .skill-prof-dot{
       width:14px; height:14px;
