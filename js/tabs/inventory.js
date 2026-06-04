@@ -1,6 +1,9 @@
-﻿function renderInventory(c){
+﻿let lastNewItemType = 'weapon';
+
+function renderInventory(c){
   const inv = c.inventory || { currency:{cp:0,sp:0,ep:0,gp:0,pp:0}, items:[] };
-  const ITEM_TYPES = ['weapon','armor','misc'];
+  const ITEM_TYPES = ['weapon','armor','misc','pack'];
+  const selectedType = ITEM_TYPES.includes(lastNewItemType) ? lastNewItemType : 'weapon';
 
   $('#contentCard').innerHTML = `
     <div class="grid2">
@@ -12,7 +15,7 @@
         <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap;">
           <input type="text" id="newItemName" placeholder="Item name" style="flex:1; min-width:140px;" />
           <select id="newItemType" style="padding:6px 10px; border-radius:var(--radius); background:var(--btn); color:var(--text); border:1px solid var(--line);">
-            ${ITEM_TYPES.map(t => `<option value="${t}">${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
+            ${ITEM_TYPES.map(t => `<option value="${t}" ${t === selectedType ? 'selected' : ''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
           </select>
           <button class="btn" id="btnAddItem">Add Item</button>
         </div>
@@ -35,12 +38,17 @@
 
   renderItems();
 
+  $('#newItemType').onchange = (e) => {
+    lastNewItemType = e.target.value || 'weapon';
+  };
+
   $('#btnAddItem').onclick = () => {
     const name = ($('#newItemName').value || '').trim();
     if (!name) { $('#newItemName').focus(); return; }
     const type = $('#newItemType').value || 'misc';
+    lastNewItemType = type;
     inv.items = inv.items || [];
-    inv.items.push({ name, type, qty:1, equipped:false, notes:'' });
+    inv.items.push({ name, type, qty:1, equipped:false, notes:'', ...(type === 'pack' ? { contents:'' } : {}) });
     c.inventory = inv;
     $('#newItemName').value = '';
     render();
@@ -48,8 +56,8 @@
 
   function renderItems(){
     const items = inv.items || [];
-    const equipped = items.filter(it => it.equipped);
-    const unequipped = items.filter(it => !it.equipped);
+    const equipped = items.filter(it => it.equipped && it.type !== 'pack');
+    const unequipped = items.filter(it => !it.equipped || it.type === 'pack');
 
     function itemHtml(it, i){
       const typeTag = it.type ? `<span class="pill" style="text-transform:capitalize;">${escapeHtml(it.type)}</span>` : '';
@@ -60,7 +68,7 @@
               <b>${escapeHtml(it.name || 'Item')}</b>
               ${typeTag}
             </div>
-            ${!['weapon','armor'].includes(it.type) ? `
+            ${!['weapon','armor','pack'].includes(it.type) ? `
               <div class="row" style="gap:4px; align-items:center; margin-top:4px;">
                 <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-dec="${i}">−</button>
                 <span class="pill">${Math.max(toInt(it.qty,0),0)}</span>
@@ -69,12 +77,15 @@
             ` : ''}
           </div>
           <div class="row" style="justify-content:flex-end; flex-wrap:wrap; align-items:flex-start;">
-            <button class="btn" data-it-equip="${i}">${it.equipped ? 'Unequip' : 'Equip'}</button>
+            ${it.type !== 'pack' ? `<button class="btn" data-it-equip="${i}">${it.equipped ? 'Unequip' : 'Equip'}</button>` : ''}
             ${['weapon','armor'].includes(it.type) ? `<button class="btn" data-it-lookup="${i}">Lookup</button>` : ''}
+            ${it.type === 'pack' ? `<button class="btn" data-it-pack-lookup="${i}">Lookup</button>` : ''}
+            ${it.type === 'pack' ? `<button class="btn" data-it-contents="${i}">Contents</button>` : ''}
             <button class="btn" data-it-notes="${i}">Notes</button>
             <button class="btn danger" data-it-del="${i}">Delete</button>
           </div>
           ${it.notes ? `<div class="mini" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.notes)}</div>` : ''}
+          ${it.type === 'pack' && it.contents ? `<div class="mini muted" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.contents.length > 120 ? it.contents.slice(0,120)+'…' : it.contents)}</div>` : ''}
         </div>
       `;
     }
@@ -135,6 +146,60 @@
         items.splice(toInt(btn.dataset.itDel,-1), 1);
         render();
       });
+
+      list.querySelectorAll('[data-it-pack-lookup]').forEach(btn => btn.onclick = async () => {
+        const i = toInt(btn.dataset.itPackLookup, -1);
+        const it = items[i];
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          const result = await wikiLookupPack(it.name);
+          it.contents = result;
+          render();
+        } catch (e) {
+          toast(e.message || 'Lookup failed.');
+          btn.disabled = false;
+          btn.textContent = 'Lookup';
+        }
+      });
+
+      list.querySelectorAll('[data-it-contents]').forEach(btn => btn.onclick = () => {
+        const it = items[toInt(btn.dataset.itContents, -1)];
+        openContentsModal(it);
+      });
+    });
+  }
+
+  function openContentsModal(it) {
+    const existing = document.getElementById('packContentsModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'packContentsModal';
+    modal.className = 'overlay';
+    modal.style.cssText = 'display:flex; align-items:center; justify-content:center; z-index:200;';
+    modal.innerHTML = `
+      <div class="dialog" style="width:min(520px,92vw); display:flex; flex-direction:column; gap:10px;" id="packContentsDialog">
+        <h3 style="margin:0;">${escapeHtml(it.name)}</h3>
+        <div class="mini muted">Contents</div>
+        <textarea id="packContentsTextarea" rows="9" style="resize:vertical; background:var(--input,var(--btn)); color:var(--text); border:1px solid var(--line); border-radius:var(--radius); padding:8px; font-size:0.95em;">${escapeHtml(it.contents || '')}</textarea>
+        <div class="row" style="gap:8px; justify-content:flex-end;">
+          <button class="btn" id="btnPackContentsSave">Save</button>
+          <button class="btn" id="btnPackContentsClose">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const textarea = document.getElementById('packContentsTextarea');
+    document.getElementById('btnPackContentsSave').onclick = () => {
+      it.contents = textarea.value;
+      modal.remove();
+      render();
+    };
+    document.getElementById('btnPackContentsClose').onclick = () => modal.remove();
+    modal.addEventListener('click', (e) => {
+      if (!document.getElementById('packContentsDialog').contains(e.target)) modal.remove();
     });
   }
 }

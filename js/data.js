@@ -46,6 +46,43 @@
   throw new Error(`"${itemName}" not found on the wiki.`);
 }
 
+async function wikiLookupPack(packName) {
+  const url = 'https://dnd5e.wikidot.com/adventuring-gear';
+
+  let rawHtml = '';
+  for (const proxyUrl of [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+  ]) {
+    try {
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) continue;
+      const text = await resp.text();
+      rawHtml = (text.trimStart().startsWith('{'))
+        ? (JSON.parse(text).contents || '')
+        : text;
+      if (rawHtml.length > 500) break;
+    } catch { /* try next proxy */ }
+  }
+  if (!rawHtml) throw new Error('Could not reach the wiki.');
+
+  const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
+  const rows = Array.from(doc.querySelectorAll('table tr'));
+  const nameLower = packName.toLowerCase().trim();
+
+  for (const row of rows) {
+    const cells = Array.from(row.querySelectorAll('td'));
+    if (cells.length < 3) continue;
+    const cellName = cells[0].textContent.trim().toLowerCase();
+    if (cellName !== nameLower) continue;
+    // cols: Pack Name | Cost | Contents
+    const contents = cells[2].textContent.trim();
+    if (!contents) throw new Error(`Contents not found for "${packName}".`);
+    return contents;
+  }
+  throw new Error(`"${packName}" not found on the wiki.`);
+}
+
 async function wikiLookupSpell(spellName) {
   const slug = spellName.toLowerCase()
     .replace(/'/g, '')
