@@ -186,24 +186,24 @@ async function wikiLookupLineage(featureName, race) {
   const pageContent = doc.querySelector('#page-content') || doc.body;
   const normalizeFeatureLabel = value => value
     .toLowerCase()
-    .replace(/[:\s]+$/g, '')
+    .replace(/[.:\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   const featureLabel = normalizeFeatureLabel(featureName);
-  const hasTrailingColon = value => /:\s*$/.test(value || '');
+  const hasTrailingLabelSeparator = value => /[.:]\s*$/.test(value || '');
   const isBoldFeatureLabelNode = node => {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
     if (!['STRONG', 'B'].includes(node.tagName)) return false;
     const raw = node.textContent.trim();
     if (!raw) return false;
-    if (hasTrailingColon(raw)) return true;
+    if (hasTrailingLabelSeparator(raw)) return true;
 
     let next = node.nextSibling;
     while (next && next.nodeType === Node.TEXT_NODE && !next.textContent.trim()) next = next.nextSibling;
-    return !!(next && next.nodeType === Node.TEXT_NODE && /^\s*:/.test(next.textContent || ''));
+    return !!(next && next.nodeType === Node.TEXT_NODE && /^\s*[.:]/.test(next.textContent || ''));
   };
   const extractDescriptionAfterLabel = strong => {
-    let sawColon = hasTrailingColon(strong.textContent.trim());
+    let sawSeparator = hasTrailingLabelSeparator(strong.textContent.trim());
     let description = '';
 
     for (let node = strong.nextSibling; node; node = node.nextSibling) {
@@ -212,26 +212,26 @@ async function wikiLookupLineage(featureName, race) {
       let text = node.textContent || '';
       if (!text) continue;
 
-      if (!sawColon) {
-        const colonMatch = text.match(/^\s*:\s*/);
-        if (!colonMatch) {
+      if (!sawSeparator) {
+        const separatorMatch = text.match(/^\s*[.:]\s*/);
+        if (!separatorMatch) {
           if (!text.trim()) continue;
           return '';
         }
-        sawColon = true;
-        text = text.slice(colonMatch[0].length);
+        sawSeparator = true;
+        text = text.slice(separatorMatch[0].length);
       }
 
       description += text;
     }
 
-    return sawColon ? description.trim() : '';
+    return sawSeparator ? description.trim() : '';
   };
 
-  // Match a bold label inside a paragraph and require the description to follow a colon.
-  const paragraphs = Array.from(pageContent.querySelectorAll('p'));
-  for (const p of paragraphs) {
-    const strongs = Array.from(p.querySelectorAll('strong, b'));
+  // Match a bold label inside a paragraph or list item and stop before the next bold label.
+  const contentBlocks = Array.from(pageContent.querySelectorAll('p, li'));
+  for (const block of contentBlocks) {
+    const strongs = Array.from(block.querySelectorAll('strong, b'));
     for (const strong of strongs) {
       const rawLabel = strong.textContent.trim();
       if (normalizeFeatureLabel(rawLabel) !== featureLabel) continue;
@@ -241,7 +241,7 @@ async function wikiLookupLineage(featureName, race) {
     }
   }
 
-  throw new Error(`No bold "${featureName}:" label was found on the ${race} lineage page.`);
+  throw new Error(`No bold label for "${featureName}" was found on the ${race} lineage page.`);
 }
 
 
