@@ -1,4 +1,112 @@
-﻿// Global state to preserve header open/closed state across renders
+﻿function openSpellModal({ spell, hasLevel, onSave, onDelete }) {
+  const existing = document.getElementById('spellModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'spellModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+  overlay.innerHTML = `
+    <div class="card" style="width:100%;max-width:480px;padding:20px;display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto;">
+      <h2 style="margin:0;">${hasLevel ? 'Edit Spell' : 'Edit Cantrip'}</h2>
+
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="font-weight:600;">Name</div>
+        <input id="smName" type="text" value="${escapeAttr(spell.name || '')}" style="width:100%;" />
+      </label>
+
+      ${hasLevel ? `
+      <div class="grid2" style="gap:8px;">
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Level</div>
+          <input id="smLevel" type="number" min="0" max="9" value="${escapeAttr(String(spell.level ?? 1))}" style="width:100%;" />
+        </label>
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Subtitle</div>
+          <input id="smSubtitle" type="text" value="${escapeAttr(spell.subtitle || '')}" placeholder="e.g. 1st-level Divination" style="width:100%;" />
+        </label>
+      </div>
+
+      <div class="grid2" style="gap:8px;">
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Casting Time</div>
+          <input id="smCastingTime" type="text" value="${escapeAttr(spell.casting_time || '')}" style="width:100%;" />
+        </label>
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Range / Area</div>
+          <input id="smRangeArea" type="text" value="${escapeAttr(spell.range_area || '')}" style="width:100%;" />
+        </label>
+      </div>
+
+      <div class="grid2" style="gap:8px;">
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Duration</div>
+          <input id="smDuration" type="text" value="${escapeAttr(spell.duration || '')}" style="width:100%;" />
+        </label>
+        <label class="col" style="gap:4px;">
+          <div class="mini" style="font-weight:600;">Components</div>
+          <input id="smComponents" type="text" value="${escapeAttr(spell.components || '')}" style="width:100%;" />
+        </label>
+      </div>
+
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="font-weight:600;">Description</div>
+        <textarea id="smDescription" style="width:100%;min-height:80px;padding:8px;font-size:13px;box-sizing:border-box;">${escapeHtml(spell.description || '')}</textarea>
+      </label>
+      ` : ''}
+
+      <label class="col" style="gap:4px;">
+        <div class="mini" style="font-weight:600;">Notes</div>
+        <textarea id="smNotes" style="width:100%;min-height:60px;padding:8px;font-size:13px;box-sizing:border-box;">${escapeHtml(spell.notes || '')}</textarea>
+      </label>
+
+      <div class="row" style="gap:8px;margin-top:4px;justify-content:space-between;">
+        ${onDelete ? `<button class="btn danger" id="smDelete">Delete</button>` : '<div></div>'}
+        <div class="row" style="gap:8px;">
+          <button class="btn" id="smCancel">Cancel</button>
+          <button class="btn good" id="smSave">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  function close() {
+    const el = document.getElementById('spellModal');
+    if (el) el.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+
+  document.getElementById('smSave').onclick = () => {
+    const name = document.getElementById('smName').value.trim();
+    if (!name) { document.getElementById('smName').focus(); return; }
+    spell.name = name;
+    spell.notes = document.getElementById('smNotes').value;
+    if (hasLevel) {
+      spell.level = clamp(toInt(document.getElementById('smLevel').value, 1), 0, 9);
+      spell.subtitle = document.getElementById('smSubtitle').value.trim();
+      spell.casting_time = document.getElementById('smCastingTime').value.trim();
+      spell.range_area = document.getElementById('smRangeArea').value.trim();
+      spell.duration = document.getElementById('smDuration').value.trim();
+      spell.components = document.getElementById('smComponents').value.trim();
+      spell.description = document.getElementById('smDescription').value;
+    }
+    close();
+    onSave && onSave();
+  };
+
+  document.getElementById('smCancel').onclick = () => close();
+  if (onDelete) {
+    document.getElementById('smDelete').onclick = () => { close(); onDelete(); };
+  }
+
+  setTimeout(() => document.getElementById('smName') && document.getElementById('smName').focus(), 10);
+}
+
+// Global state to preserve header open/closed state across renders
 window.spellTabHeaderState = window.spellTabHeaderState || {
   spellcasting: false,
   spellSlots: false
@@ -137,25 +245,40 @@ function renderSpells(c){
     render();
   };
   $('#btnAddCantrip').onclick = () => {
-    const name = prompt('Cantrip name:');
-    if (!name) return;
-    s.cantrips = s.cantrips || [];
-    s.cantrips.push({ name: name.trim(), notes:'' });
-    render();
+    const newSpell = { name: '', notes: '' };
+    openSpellModal({
+      spell: newSpell,
+      hasLevel: false,
+      onSave: () => {
+        s.cantrips = s.cantrips || [];
+        s.cantrips.push(newSpell);
+        render();
+      }
+    });
   };
   $('#btnAddPrepared').onclick = () => {
-    const name = prompt('Spell name:');
-    if (!name) return;
-    s.prepared_spells = s.prepared_spells || [];
-    s.prepared_spells.push({ name: name.trim(), level: 1, notes:'' });
-    render();
+    const newSpell = { name: '', level: 1, notes: '' };
+    openSpellModal({
+      spell: newSpell,
+      hasLevel: true,
+      onSave: () => {
+        s.prepared_spells = s.prepared_spells || [];
+        s.prepared_spells.push(newSpell);
+        render();
+      }
+    });
   };
   $('#btnAddKnown').onclick = () => {
-    const name = prompt('Spell name:');
-    if (!name) return;
-    s.known_spells = s.known_spells || [];
-    s.known_spells.push({ name: name.trim(), level: 1, notes:'' });
-    render();
+    const newSpell = { name: '', level: 1, notes: '' };
+    openSpellModal({
+      spell: newSpell,
+      hasLevel: true,
+      onSave: () => {
+        s.known_spells = s.known_spells || [];
+        s.known_spells.push(newSpell);
+        render();
+      }
+    });
   };
 
   
@@ -182,7 +305,6 @@ function renderSpells(c){
               ${hasLevel ? `<span class="pill">lvl ${toInt(x.level,1)}</span>` : ''}
             </div>
             <div class="row" style="gap:6px;">
-              ${hasLevel ? `<button class="btn" data-spell-level="${field}:${i}">Level</button>` : ''}
               ${moveToField ? `<button class="btn" data-spell-move="${field}:${i}:${moveToField}">${moveLabel}</button>` : ''}
               <button class="btn" data-spell-expand="${field}:${i}">Details</button>
               <button class="btn danger" data-spell-del="${field}:${i}">Delete</button>
@@ -198,9 +320,8 @@ function renderSpells(c){
               ${hasStats && x.description ? `<hr class="spell-card-rule" />` : ''}
               ${x.description ? `<div class="spell-card-desc">${escapeHtml(x.description).replace(/\n/g,'<br/>')}</div>` : '<div class="mini">No description yet.</div>'}
               <div class="row" style="margin-top:12px; gap:8px;">
-                <button class="btn" data-spell-edit="${field}:${i}">Edit Details</button>
+                <button class="btn" data-spell-edit="${field}:${i}">Edit</button>
                 <button class="btn" data-spell-wiki="${field}:${i}">Wiki Lookup</button>
-                <button class="btn" data-spell-notes="${field}:${i}">Notes</button>
               </div>
             </div>
           </div>
@@ -219,44 +340,12 @@ function renderSpells(c){
       const [f, idxStr] = btn.dataset.spellEdit.split(':');
       const i = toInt(idxStr, -1);
       const sp = s[f][i];
-      const name = prompt('Name:', sp.name ?? '');
-      if (name == null) return;
-      const subtitle = prompt('Subtitle (e.g. "1st-level Divination"):', sp.subtitle ?? '');
-      if (subtitle == null) return;
-      const casting_time = prompt('Casting Time:', sp.casting_time ?? '');
-      if (casting_time == null) return;
-      const range_area = prompt('Range/Area:', sp.range_area ?? '');
-      if (range_area == null) return;
-      const duration = prompt('Duration:', sp.duration ?? '');
-      if (duration == null) return;
-      const components = prompt('Components:', sp.components ?? '');
-      if (components == null) return;
-      const description = prompt('Description:', sp.description ?? '');
-      if (description == null) return;
-      sp.name = name; sp.subtitle = subtitle; sp.casting_time = casting_time;
-      sp.range_area = range_area; sp.duration = duration; sp.components = components;
-      sp.description = description;
-      render();
-    });
-
-    list.querySelectorAll('[data-spell-level]').forEach(btn => btn.onclick = () => {
-      const [f, idxStr] = btn.dataset.spellLevel.split(':');
-      const i = toInt(idxStr, -1);
-      const sp = s[f][i];
-      const lvl = prompt('Spell level:', sp.level ?? 1);
-      if (lvl == null) return;
-      sp.level = clamp(toInt(lvl, 1), 0, 9);
-      render();
-    });
-
-    list.querySelectorAll('[data-spell-notes]').forEach(btn => btn.onclick = () => {
-      const [f, idxStr] = btn.dataset.spellNotes.split(':');
-      const i = toInt(idxStr, -1);
-      const sp = s[f][i];
-      const notes = prompt('Notes:', sp.notes ?? '');
-      if (notes == null) return;
-      sp.notes = notes;
-      render();
+      openSpellModal({
+        spell: sp,
+        hasLevel: f !== 'cantrips',
+        onSave: () => { render(); },
+        onDelete: () => { s[f].splice(i, 1); render(); }
+      });
     });
 
     list.querySelectorAll('[data-spell-del]').forEach(btn => btn.onclick = () => {

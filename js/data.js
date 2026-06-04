@@ -155,6 +155,73 @@ async function wikiLookupSpell(spellName) {
   return { subtitle, casting_time, range_area, components, duration, description: descParts.join('\n\n') };
 }
 
+async function wikiLookupLineage(featureName, race) {
+  const raceSlug = race.toLowerCase()
+    .replace(/'/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  const targetUrl = `https://dnd5e.wikidot.com/lineage:${raceSlug}`;
+
+  let rawHtml = '';
+  for (const proxyUrl of [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+  ]) {
+    try {
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) continue;
+      const text = await resp.text();
+      rawHtml = (text.trimStart().startsWith('{'))
+        ? (JSON.parse(text).contents || '')
+        : text;
+      if (rawHtml.length > 500) break;
+    } catch { /* try next proxy */ }
+  }
+  if (!rawHtml) throw new Error('Could not reach the wiki. Check your internet connection.');
+
+  if (/does not exist/i.test(rawHtml))
+    throw new Error(`Lineage page for "${race}" not found on the wiki.`);
+
+  const doc = (new DOMParser()).parseFromString(rawHtml, 'text/html');
+  const pageContent = doc.querySelector('#page-content') || doc.body;
+  const featureNameLower = featureName.toLowerCase().trim();
+
+  // 1. Try matching a heading (h2/h3/h4) that contains the feature name, then gather following paragraphs.
+  const headings = Array.from(pageContent.querySelectorAll('h2, h3, h4'));
+  for (const heading of headings) {
+    if (heading.textContent.trim().toLowerCase().includes(featureNameLower)) {
+      const parts = [];
+      let node = heading.nextElementSibling;
+      while (node && !['H2', 'H3', 'H4'].includes(node.tagName)) {
+        const text = node.textContent.trim();
+        if (text.length > 10) parts.push(text);
+        node = node.nextElementSibling;
+      }
+      if (parts.length) return parts.join('\n\n');
+    }
+  }
+
+  // 2. Try matching a bold/strong label inside a paragraph (common wikidot trait list style).
+  const paragraphs = Array.from(pageContent.querySelectorAll('p'));
+  for (const p of paragraphs) {
+    const strong = p.querySelector('strong, b');
+    if (strong && strong.textContent.trim().toLowerCase().includes(featureNameLower)) {
+      const text = p.textContent.trim();
+      if (text.length > 15) return text;
+    }
+  }
+
+  // 3. Fallback: return a concise summary of lineage traits (first meaningful paragraphs).
+  const skipPat = /^(age|size|speed|languages|ability score|source|table of contents)/i;
+  const traitParts = paragraphs
+    .map(el => el.textContent.trim())
+    .filter(t => t.length > 30 && !skipPat.test(t));
+
+  if (traitParts.length) return traitParts.slice(0, 4).join('\n\n');
+
+  throw new Error(`No content found for "${featureName}" on the ${race} lineage page.`);
+}
+
 
 function uint8ToBase32(bytes) {
   let bits = 0, val = 0, out = '';
