@@ -129,6 +129,7 @@ function renderTabs(){
     { id:'inventory',  label:'Inventory' },
     { id:'camp',       label:'Camp' },
     { id:'settings',   label:'Settings' },
+    { id:'notes',      label:'Notes' },
   ].filter(t => !t.hide);
 
   // If current tab got hidden, bounce to overview
@@ -193,6 +194,12 @@ function renderTabs(){
   settingsBtn.dataset.tab = 'settings';
   settingsBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
 
+  const notesBtn = document.createElement('button');
+  notesBtn.className = 'tab';
+  notesBtn.textContent = 'Notes';
+  notesBtn.dataset.tab = 'notes';
+  notesBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
+
   const menuBtn = document.createElement('button');
   menuBtn.id = 'btnMenuToggle';
   menuBtn.className = 'tab';
@@ -200,6 +207,7 @@ function renderTabs(){
   menuBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
 
   topRow.appendChild(settingsBtn);
+  topRow.appendChild(notesBtn);
   topRow.appendChild(menuBtn);
   drawer.appendChild(topRow);
 
@@ -224,7 +232,7 @@ function renderTabs(){
       ${isActive ? `border-color:rgba(${bRgb},0.6); background:rgba(${bRgb},0.12);` : `border-color:rgba(${bRgb},0.2);`}`;
     btn.textContent = t.label;
 
-    if (t.id === 'settings') { return; }
+    if (t.id === 'settings' || t.id === 'notes') { return; }
 
     const star = document.createElement('button');
     star.dataset.favBtn = t.id;
@@ -359,7 +367,6 @@ function renderTabBar(containerId, allTabs, activeId, onSwitch) {
                 ${isActive ? `border-color:rgba(${rgb},0.6); background:rgba(${rgb},0.12);` : `border-color:rgba(${rgb},0.2);`}"
             >${t.label}</button>`;
           }).join('')}
-          <button id="btnHostMenuToggle" class="tab" style="white-space:nowrap; padding:10px 14px; font-size:14px;">Back to Overview</button>
         </div>
       </div>
     `;
@@ -419,6 +426,7 @@ function renderTabBar(containerId, allTabs, activeId, onSwitch) {
 
     const backBtn = document.createElement('button');
     backBtn.className = 'tab';
+    backBtn.className = 'btnBackToHost';
     backBtn.textContent = 'Back to Overview';
     backBtn.id = 'btnHostMenuToggleMobile';
     backBtn.style.cssText = 'flex:1; padding:12px 6px; font-size:14px;';
@@ -559,21 +567,13 @@ function renderTabBar(containerId, allTabs, activeId, onSwitch) {
       closeHostDrawer();
       if (typeof window.mpViewingPlayer !== 'undefined') {
         mpViewingPlayer = null;
+        mpDetailTab = 'overview';
         renderHostView();
       }
     };
   }
 
-  // Desktop "Back to Host" button handler
-  const backBtnDesktop = document.getElementById('btnHostMenuToggle');
-  if (backBtnDesktop) {
-    backBtnDesktop.onclick = () => {
-      if (typeof window.mpViewingPlayer !== 'undefined') {
-        mpViewingPlayer = null;
-        renderHostView();
-      }
-    };
-  }
+
 
   // Wire main tab buttons in bar
   container.querySelectorAll('[data-tab]').forEach(btn => {

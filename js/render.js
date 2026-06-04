@@ -4,7 +4,20 @@
   let _lastMobile = window.innerWidth < 640;
   window.addEventListener('resize', () => {
     const mobile = window.innerWidth < 640;
-    if (mobile !== _lastMobile) { _lastMobile = mobile; renderTabs(); }
+    if (mobile !== _lastMobile) {
+      _lastMobile = mobile;
+      // If host view is visible, re-render that instead of player tabs
+      const hostView = document.getElementById('hostView');
+      if (hostView && hostView.style.display !== 'none') {
+        if (typeof mpViewingPlayer !== 'undefined' && mpViewingPlayer && typeof renderHostFullView === 'function') {
+          renderHostFullView();
+        } else if (typeof renderHostView === 'function') {
+          renderHostView();
+        }
+      } else {
+        renderTabs();
+      }
+    }
   });
 })();
 
@@ -26,6 +39,7 @@ function renderContent(){
   else if (activeTab === 'conditions_exhaustion') renderConditionsExhaustion(c);
   else if (activeTab === 'inventory') renderInventory(c);
   else if (activeTab === 'camp') renderCamp(c);
+  else if (activeTab === 'notes') renderNotes(c);
   else if (activeTab === 'settings') renderSettings();
   const rgb = tabRgb(activeTab);
   const card = document.getElementById('contentCard');

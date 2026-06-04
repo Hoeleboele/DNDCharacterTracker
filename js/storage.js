@@ -24,12 +24,18 @@ function startAutosave(){
   if (!appSettings.autosaveMs) return; // autosave disabled
   autosaveInterval = setInterval(() => {
     flashSaveBtn('Saving…', 0);
-    const ok = saveToLocalStorage();
-    if (ok && fbUser) {
-      // Also save to cloud if user is authenticated
-      saveCharToCloud(state).catch(e => console.warn('Cloud autosave failed:', e));
+    // Use syncToHost() which handles multiplayer sync and also saves locally
+    if (gameMode === 'player' && typeof syncToHost === 'function') {
+      syncToHost();
+      flashSaveBtn('Saved ✓', 2000);
+    } else {
+      const ok = saveToLocalStorage();
+      if (ok && fbUser) {
+        // Also save to cloud if user is authenticated
+        saveCharToCloud(state).catch(e => console.warn('Cloud autosave failed:', e));
+      }
+      flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
     }
-    flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
   }, appSettings.autosaveMs);
 }
 

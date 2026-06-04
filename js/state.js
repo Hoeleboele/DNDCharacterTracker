@@ -82,6 +82,7 @@ function newBlank() {
       },
       quests: [],
       notes: '',
+      player_notes: '',
       ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 },
       skill_proficiencies: [],
       skill_disadvantages: []

@@ -228,7 +228,12 @@ function mpTryHost(code, allowFallback = true) {
         // if the player included their locally-saved host note, use it
         if (data.host_notes != null) mpPlayerConns[conn.peer].notes = data.host_notes || '';
         mpRefreshing = false;
-        renderHostView();
+        // If host is viewing this player's detail, update that view; otherwise show the player list
+        if (mpViewingPlayer === conn.peer) {
+          renderHostFullView();
+        } else {
+          renderHostView();
+        }
       }
     });
     conn.on('close', () => {
@@ -373,6 +378,8 @@ function renderHostView() {
   try {
     const hostTabsCard = document.getElementById('hostTabsCard');
     if (hostTabsCard && hostTabsCard.parentNode) hostTabsCard.parentNode.removeChild(hostTabsCard);
+    const notch = document.getElementById('tabTitleNotch');
+    if (notch) notch.remove();
   } catch (e) {}
 
   // ── Shared header ────────────────────────────────────────────────────────
@@ -1003,6 +1010,7 @@ function renderHostFullView() {
     { id: 'features', label: 'Features' },
     { id: 'combat', label: 'Combat' },
     { id: 'inventory', label: 'Inventory' },
+    { id: 'player_notes', label: 'Notes' },
     { id: 'spells', label: 'Spells', hide: !ch.spellcasting },
   ].filter(t => !t.hide);
 
@@ -1222,6 +1230,9 @@ function renderHostFullView() {
           </div>
         </div>`;
     }
+    if (mpDetailTab === 'player_notes') {
+      return `<div style="white-space:pre-wrap; font-size:14px; line-height:1.6;">${escapeHtml(ch.player_notes || 'No notes.')}</div>`;
+    }
     if (mpDetailTab === 'quests') {
       return `<div class="col">
         ${(ch.quests || []).length ? (ch.quests || []).map(q => `
@@ -1271,6 +1282,7 @@ function renderHostFullView() {
 
   inner.querySelector('#btnBackToHost').onclick = () => {
     mpViewingPlayer = null;
+    mpDetailTab = 'overview';
     renderHostView();
   };
   inner.querySelectorAll('[data-dtab]').forEach(el => {
@@ -1302,7 +1314,16 @@ function renderHostFullView() {
       hostTabs.style.cssText = 'position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:1px solid var(--line); z-index:20;';
       document.getElementById('hostView').appendChild(hostTabs);
     }
-    renderTabBar('hostTabsCard', tabs, mpDetailTab, (id) => { mpDetailTab = id; renderHostFullView(); });
+    renderTabBar('hostTabsCard', tabs, mpDetailTab, (id) => { 
+      if (id === 'overview') {
+        // Clicking overview stays in player view on overview tab
+        mpDetailTab = id;
+        renderHostFullView();
+      } else {
+        mpDetailTab = id;
+        renderHostFullView();
+      }
+    });
   } catch (e) {}
 }
 

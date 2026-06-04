@@ -161,6 +161,7 @@ const TAB_COLORS = {
   combat:     '#f87171',  // red — danger
   inventory:  '#fbbf24',  // amber — treasure & items
   camp:       '#4ade80',  // green — rest & nature
+  notes:      '#facc15',  // yellow/gold — journal scratchpad
   settings:   '#7cc0ff',  // accent blue — UI
 };
 function tabRgb(id){ if (!appSettings.colorMode) return '124,192,255'; const h=TAB_COLORS[id]||'#7cc0ff'; return `${parseInt(h.slice(1,3),16)},${parseInt(h.slice(3,5),16)},${parseInt(h.slice(5,7),16)}`; }
@@ -175,6 +176,7 @@ const TAB_TIPS = {
   conditions_exhaustion: { title: '🩺 Conditions', body: 'Manage conditions and exhaustion levels (1–6). Exhaustion affects speed and hit point maximum and can cause death at level 6.' },
   inventory:  { title: '🎒 Inventory',   body: 'Manage items, equipment, and currency. Mark items as equipped to track what your character is carrying.' },
   camp:       { title: '🏕️ Camp',        body: 'Take a Short or Long Rest to recover HP, spend hit dice, and reset your resources and spell slots.' },
+  notes:      { title: '📓 Notes',       body: 'Personal scratchpad for session notes, NPCs, or anything else. In multiplayer games, your DM can view your notes.' },
   settings:   { title: '⚙️ Settings',    body: 'Customise tab colors, card glow, autosave interval, cloud sync, and tutorial preferences.' },
 };
 
