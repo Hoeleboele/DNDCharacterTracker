@@ -56,27 +56,25 @@
       return `
         <div class="item">
           <div style="flex:1;">
-            <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:4px;">
-              <div class="row" style="gap:6px; align-items:center;">
-                <b>${escapeHtml(it.name || 'Item')}</b>
-                ${typeTag}
-              </div>
-              <div class="row" style="gap:4px; align-items:center;">
-                ${!['weapon','armor'].includes(it.type) ? `
-                  <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-dec="${i}">−</button>
-                  <span class="pill">${Math.max(toInt(it.qty,0),0)}</span>
-                  <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-inc="${i}">+</button>
-                ` : ''}
-              </div>
+            <div class="row" style="gap:6px; align-items:center; flex-wrap:wrap;">
+              <b>${escapeHtml(it.name || 'Item')}</b>
+              ${typeTag}
             </div>
-            ${it.notes ? `<div class="mini" style="margin-top:4px;">${escapeHtml(it.notes)}</div>` : ''}
+            ${!['weapon','armor'].includes(it.type) ? `
+              <div class="row" style="gap:4px; align-items:center; margin-top:4px;">
+                <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-dec="${i}">−</button>
+                <span class="pill">${Math.max(toInt(it.qty,0),0)}</span>
+                <button class="btn" style="padding:2px 8px; font-size:0.9em;" data-it-inc="${i}">+</button>
+              </div>
+            ` : ''}
           </div>
-          <div class="row" style="justify-content:flex-end; flex-wrap:wrap;">
+          <div class="row" style="justify-content:flex-end; flex-wrap:wrap; align-items:flex-start;">
             <button class="btn" data-it-equip="${i}">${it.equipped ? 'Unequip' : 'Equip'}</button>
             ${['weapon','armor'].includes(it.type) ? `<button class="btn" data-it-lookup="${i}">Lookup</button>` : ''}
             <button class="btn" data-it-notes="${i}">Notes</button>
             <button class="btn danger" data-it-del="${i}">Delete</button>
           </div>
+          ${it.notes ? `<div class="mini" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(it.notes)}</div>` : ''}
         </div>
       `;
     }

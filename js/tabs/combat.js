@@ -317,8 +317,7 @@ function renderCombat(c){
             <b>${escapeHtml(a.name || 'Attack')}</b>
             <span class="pill">to hit: ${a.to_hit == null ? '—' : signed(toInt(a.to_hit,0))}</span>
           </div>
-          <div class="mini"><b>Damage:</b> ${escapeHtml(a.damage || '')}</div>
-          <div class="mini">${escapeHtml(a.notes || '')}</div>
+          <div class="mini" style="margin-top:4px;"><b>Damage:</b> ${escapeHtml(a.damage || '')}</div>
         </div>
         <div class="col" style="min-width:160px;">
           <div class="row" style="justify-content:flex-end;">
@@ -327,6 +326,7 @@ function renderCombat(c){
             <button class="btn danger" data-atk-del="${i}">Delete</button>
           </div>
         </div>
+        ${a.notes ? `<div class="mini" style="grid-column:1/-1; margin-top:2px;">${escapeHtml(a.notes)}</div>` : ''}
       </div>
     `).join('') : `<div class="mini">No attacks listed.</div>`;
 
