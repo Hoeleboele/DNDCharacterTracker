@@ -207,6 +207,13 @@ async function wikiLookupLineage(featureName, race) {
     const strong = p.querySelector('strong, b');
     if (strong && strong.textContent.trim().toLowerCase().includes(featureNameLower)) {
       const text = p.textContent.trim();
+      let description = text;
+      const label = strong.textContent.trim();
+      if (label && description.toLowerCase().startsWith(label.toLowerCase())) {
+        description = description.slice(label.length).trim();
+      }
+      description = description.replace(/^[:.\-]\s*/, '').trim();
+      if (description.length > 15) return description;
       if (text.length > 15) return text;
     }
   }
