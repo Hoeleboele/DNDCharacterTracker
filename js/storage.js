@@ -25,6 +25,10 @@ function startAutosave(){
   autosaveInterval = setInterval(() => {
     flashSaveBtn('Saving…', 0);
     const ok = saveToLocalStorage();
+    if (ok && fbUser) {
+      // Also save to cloud if user is authenticated
+      saveCharToCloud(state).catch(e => console.warn('Cloud autosave failed:', e));
+    }
     flashSaveBtn(ok ? 'Saved ✓' : 'Save failed', 2000);
   }, appSettings.autosaveMs);
 }

@@ -20,18 +20,28 @@
   $('#contentCard').innerHTML = `
     <div class="grid2">
       <div class="col">
-        <h2>Spellcasting</h2>
-        <div class="grid3">
-          ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
-          <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}<button id="btnDcToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
-          <div id="dcBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">DC Extra Bonus</div><input type="number" data-num="spellcasting.dc_bonus" value="${escapeAttr(String(s.dc_bonus ?? 0))}" /></label></div>
-          <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Attack Bonus${fieldStar('_spell_atk','Attack Bonus')}<button id="btnAtkToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
-          <div id="atkBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">Atk Extra Bonus</div><input type="number" data-num="spellcasting.atk_bonus" value="${escapeAttr(String(s.atk_bonus ?? 0))}" /></label></div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h2 style="margin:0;">Spellcasting</h2>
+          <button id="btnSpellcastingToggle" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:0;margin-top:2px;">▶</button>
+        </div>
+        <div id="spellcastingContent" class="list" style="margin-top:10px;display:none;">
+          <div class="grid3">
+            ${selectField('Ability','spellcasting.ability', s.ability || 'INT', ['INT','WIS','CHA'])}
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Save DC${fieldStar('_spell_dc','Save DC')}<button id="btnDcToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${saveDC}</span><div class="mini muted">8 + Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${dcBonus >= 0 ? '+' : ''}${dcBonus})</div></label>
+            <div id="dcBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">DC Extra Bonus</div><input type="number" data-num="spellcasting.dc_bonus" value="${escapeAttr(String(s.dc_bonus ?? 0))}" /></label></div>
+            <label class="col" style="gap:6px;"><div class="mini" style="display:flex;align-items:center;gap:4px;">Spell Attack Bonus${fieldStar('_spell_atk','Spell Attack Bonus')}<button id="btnAtkToggle" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);margin-left:auto;padding:0;">&#9660; bonus</button></div><span class="pill" style="font-size:1.1em; font-weight:700;">${atkBonus >= 0 ? '+' : ''}${atkBonus}</span><div class="mini muted">Prof (+${profBonus}) + ${s.ability||'INT'} mod (${abilMod >= 0 ? '+' : ''}${abilMod}) + bonus (${atkBonusExtra >= 0 ? '+' : ''}${atkBonusExtra})</div></label>
+            <div id="atkBonusField" style="display:none;"><label class="col" style="gap:4px;"><div class="mini">Atk Extra Bonus</div><input type="number" data-num="spellcasting.atk_bonus" value="${escapeAttr(String(s.atk_bonus ?? 0))}" /></label></div>
+          </div>
         </div>
 
-        <h2 style="margin-top:14px;">Spell Slots</h2>
-        <div class="list" id="slotsList" style="margin-top:10px;"></div>
-        <button class="btn" id="btnAddSlot">Add Slot Level</button>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:14px;">
+          <h2 style="margin:0;">Spell Slots</h2>
+          <button id="btnSpellSlotsToggle" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:0;margin-top:2px;">▶</button>
+        </div>
+        <div id="spellSlotsContent" class="list" style="margin-top:10px;display:none;">
+          <div class="list" id="slotsList" style="margin-top:10px;"></div>
+          <button class="btn" id="btnAddSlot">Add Slot Level</button>
+        </div>
 
         <h2 style="margin-top:14px;">Cantrips</h2>
         <div class="list" id="cantripsList" style="margin-top:10px;"></div>
@@ -81,6 +91,21 @@
     const open = f.style.display === 'none';
     f.style.display = open ? '' : 'none';
     document.getElementById('btnAtkToggle').textContent = open ? '▲ bonus' : '▾ bonus';
+  };
+
+  document.getElementById('btnSpellcastingToggle').onclick = () => {
+    const content = document.getElementById('spellcastingContent');
+    const btn = document.getElementById('btnSpellcastingToggle');
+    const isOpen = content.style.display !== 'none';
+    content.style.display = isOpen ? 'none' : 'block';
+    btn.textContent = isOpen ? '▶' : '▼';
+  };
+  document.getElementById('btnSpellSlotsToggle').onclick = () => {
+    const content = document.getElementById('spellSlotsContent');
+    const btn = document.getElementById('btnSpellSlotsToggle');
+    const isOpen = content.style.display !== 'none';
+    content.style.display = isOpen ? 'none' : 'block';
+    btn.textContent = isOpen ? '▶' : '▼';
   };
 
   // Re-render when ability changes so DC/attack bonus update immediately
