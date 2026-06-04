@@ -184,17 +184,16 @@ function renderSpells(c){
   // extra bonus fields and max_prepared must re-render to update the computed values
   const maxPrepInp = document.getElementById('inlineMaxPrepared');
   if (maxPrepInp) {
-    maxPrepInp.onchange = () => {
-      let v = toInt(maxPrepInp.value, 1);
-      if (v < 1) { v = 1; maxPrepInp.value = 1; }
+    // Keep focus while editing; only commit UI re-render when focus leaves the field.
+    maxPrepInp.oninput = () => {
+      const v = Math.max(1, toInt(maxPrepInp.value, 1));
       s.max_prepared = v;
-      render();
     };
-    // Also validate on blur to ensure minimum value
     maxPrepInp.onblur = () => {
       let v = toInt(maxPrepInp.value, 1);
       if (v < 1) { v = 1; maxPrepInp.value = 1; }
       s.max_prepared = v;
+      render();
     };
   };
   const dcBonusInp = $('#contentCard').querySelector('[data-num="spellcasting.dc_bonus"]');
