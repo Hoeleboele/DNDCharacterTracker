@@ -1231,6 +1231,17 @@ function renderHostFullView() {
         </div>`;
     }
     if (mpDetailTab === 'player_notes') {
+      const noteItems = Array.isArray(ch.notes) ? ch.notes : [];
+      if (noteItems.length) {
+        return `<div class="col">${noteItems.map(note => `
+          <div class="item" style="display:block;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <b>${escapeHtml(note.title || 'Untitled Note')}</b>
+              ${note.readonly ? '<span class="pill" style="font-size:11px;">read only</span>' : ''}
+            </div>
+            <div class="mini" style="white-space:pre-wrap; margin-top:6px;">${escapeHtml(note.body || '')}</div>
+          </div>`).join('')}</div>`;
+      }
       return `<div style="white-space:pre-wrap; font-size:14px; line-height:1.6;">${escapeHtml(ch.player_notes || 'No notes.')}</div>`;
     }
     if (mpDetailTab === 'quests') {
@@ -1244,7 +1255,15 @@ function renderHostFullView() {
       </div>`;
     }
     if (mpDetailTab === 'notes') {
-      return `<div style="white-space:pre-wrap; font-size:14px; line-height:1.6;">${escapeHtml(ch.notes || 'No notes.')}</div>`;
+      const noteItems = Array.isArray(ch.notes) ? ch.notes : [];
+      if (!noteItems.length) {
+        return `<div style="white-space:pre-wrap; font-size:14px; line-height:1.6;">No notes.</div>`;
+      }
+      return `<div class="col">${noteItems.map(note => `
+        <div class="item" style="display:block;">
+          <b>${escapeHtml(note.title || 'Untitled Note')}</b>
+          <div class="mini" style="white-space:pre-wrap; margin-top:6px;">${escapeHtml(note.body || '')}</div>
+        </div>`).join('')}</div>`;
     }
     return '';
   }

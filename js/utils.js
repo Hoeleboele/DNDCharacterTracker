@@ -97,6 +97,61 @@ function normalize(data){
   if (!Array.isArray(out.character.skill_disadvantages)) out.character.skill_disadvantages = [];
   out.character.stats_lock_toggles = !!out.character.stats_lock_toggles;
 
+  const nowIso = new Date().toISOString();
+  const notesValue = out.character.notes;
+  const legacyPlayerNotes = typeof out.character.player_notes === 'string' ? out.character.player_notes.trim() : '';
+  const legacyFreeformNotes = typeof notesValue === 'string' ? notesValue.trim() : '';
+  const importedNotes = [];
+
+  if (legacyPlayerNotes) {
+    importedNotes.push({
+      id: 'note-' + Math.random().toString(16).slice(2),
+      title: 'Imported Note',
+      body: legacyPlayerNotes,
+      readonly: false,
+      created_at: nowIso,
+      updated_at: nowIso
+    });
+  }
+  if (legacyFreeformNotes && legacyFreeformNotes !== legacyPlayerNotes) {
+    importedNotes.push({
+      id: 'note-' + Math.random().toString(16).slice(2),
+      title: 'Imported Legacy Note',
+      body: legacyFreeformNotes,
+      readonly: false,
+      created_at: nowIso,
+      updated_at: nowIso
+    });
+  }
+
+  const inputNotes = Array.isArray(notesValue) ? notesValue : [];
+  out.character.notes = inputNotes
+    .map((note, idx) => {
+      if (!note || typeof note !== 'object') return null;
+      const title = String(note.title || '').trim();
+      const body = String(note.body ?? note.note ?? '').trim();
+      const created = note.created_at ? String(note.created_at) : nowIso;
+      const updated = note.updated_at ? String(note.updated_at) : created;
+      if (!title && !body) return null;
+      return {
+        id: String(note.id || ('note-' + Math.random().toString(16).slice(2) + '-' + idx)),
+        title: title || 'Untitled Note',
+        body,
+        readonly: !!note.readonly,
+        created_at: created,
+        updated_at: updated
+      };
+    })
+    .filter(Boolean);
+
+  if (!out.character.notes.length && importedNotes.length) {
+    out.character.notes = importedNotes;
+  }
+
+  if (typeof out.character.player_notes !== 'string') {
+    out.character.player_notes = out.character.player_notes == null ? '' : String(out.character.player_notes);
+  }
+
   return out;
 }
 

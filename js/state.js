@@ -1,4 +1,4 @@
-﻿function loadAppSettings(){ try { const v = JSON.parse(localStorage.getItem(SETTINGS_KEY)); return Object.assign({ colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true }, v || {}); } catch(_){ return { colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true }; } }
+﻿function loadAppSettings(){ try { const v = JSON.parse(localStorage.getItem(SETTINGS_KEY)); return Object.assign({ colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true, notesSort: 'newest' }, v || {}); } catch(_){ return { colorMode: true, cardGlow: true, autosaveMs: 30000, cloudSaveOnExit: true, showTutorial: true, showAppTutorial: true, notesSort: 'newest' }; } }
 function saveAppSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); } catch(_){} }
 let appSettings = loadAppSettings();
 
@@ -81,7 +81,7 @@ function newBlank() {
         items: []
       },
       quests: [],
-      notes: '',
+      notes: [],
       player_notes: '',
       ability_scores: { str:10, dex:10, con:10, int:10, wis:10, cha:10 },
       skill_proficiencies: [],
